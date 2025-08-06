@@ -38,7 +38,7 @@ class ToolXMLParser(XMLParser):
         result = super().parse(text, strip)
 
         # If there's a tool tag, parse and store the action
-        if hasattr(result, 'tool') and result.tool:
+        if hasattr(result, "tool") and result.tool:
             try:
                 result.action = self._parse_action(result.tool)
             except ValueError as e:
@@ -60,7 +60,7 @@ class ToolXMLParser(XMLParser):
             'done()' -> {"name": "done", "arguments": {}}
         """
         # Match function name and arguments
-        match = re.match(r'(\w+)\((.*)\)', call_str.strip())
+        match = re.match(r"(\w+)\((.*)\)", call_str.strip())
         if not match:
             raise ValueError(f"Invalid function call syntax: {call_str}")
 
@@ -75,58 +75,37 @@ class ToolXMLParser(XMLParser):
         # Special handling for each action type
         if action_name == "click":
             # Parse: click(x, y)
-            parts = args_str.split(',')
+            parts = args_str.split(",")
             if len(parts) != 2:
                 raise ValueError(f"click() expects 2 arguments, got {len(parts)}")
-            return {
-                "name": "click",
-                "arguments": {
-                    "x": int(parts[0].strip()),
-                    "y": int(parts[1].strip())
-                }
-            }
+            return {"name": "click", "arguments": {"x": int(parts[0].strip()), "y": int(parts[1].strip())}}
 
         elif action_name == "type":
             # Parse: type("text") or type('text')
             match = re.match(r'^["\'](.+)["\']$', args_str)
             if not match:
                 raise ValueError("type() expects a quoted string argument")
-            return {
-                "name": "type",
-                "arguments": {"text": match.group(1)}
-            }
+            return {"name": "type", "arguments": {"text": match.group(1)}}
 
         elif action_name == "key":
             # Parse: key("key_name")
             match = re.match(r'^["\'](.+)["\']$', args_str)
             if not match:
                 raise ValueError("key() expects a quoted string argument")
-            return {
-                "name": "key",
-                "arguments": {"key": match.group(1)}
-            }
+            return {"name": "key", "arguments": {"key": match.group(1)}}
 
         elif action_name == "scroll":
             # Parse: scroll("direction", amount)
             match = re.match(r'^["\'](\w+)["\'],\s*(\d+)$', args_str)
             if not match:
                 raise ValueError("scroll() expects a quoted direction and numeric amount")
-            return {
-                "name": "scroll",
-                "arguments": {
-                    "direction": match.group(1),
-                    "amount": int(match.group(2))
-                }
-            }
+            return {"name": "scroll", "arguments": {"direction": match.group(1), "amount": int(match.group(2))}}
 
         elif action_name == "wait":
             # Parse: wait(seconds)
             try:
                 seconds = float(args_str)
-                return {
-                    "name": "wait",
-                    "arguments": {"seconds": seconds}
-                }
+                return {"name": "wait", "arguments": {"seconds": seconds}}
             except ValueError as e:
                 raise ValueError("wait() expects a numeric argument") from e
 

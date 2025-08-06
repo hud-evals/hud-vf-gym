@@ -123,8 +123,8 @@ class HUDToolRubric(Rubric):
 
     def get_thinking_quality_reward_func(self) -> Callable:
         """
-        Returns a reward function that evaluates thinking quality based on length.
-    ).
+            Returns a reward function that evaluates thinking quality based on length.
+        ).
         """
 
         def thinking_reward(completion: list[dict[str, str]], **kwargs) -> float:

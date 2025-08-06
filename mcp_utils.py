@@ -4,12 +4,13 @@ import logging
 from typing import Any
 
 import mcp.types as types
-from mcp.types import CallToolRequestParams as MCPToolCall
 
 logger = logging.getLogger(__name__)
 
 
-def create_computer_action_args(action_name: str, action_args: dict[str, Any], action_mappings: dict[str, Any]) -> dict[str, Any] | None:
+def create_computer_action_args(
+    action_name: str, action_args: dict[str, Any], action_mappings: dict[str, Any]
+) -> dict[str, Any] | None:
     """Create MCP computer tool arguments from agent action calls.
 
     Maps agent action names (click, type, etc.) to the MCP computer tool's expected format.
@@ -76,7 +77,9 @@ def create_computer_action_args(action_name: str, action_args: dict[str, Any], a
     return mcp_args
 
 
-async def execute_tool(tool_call: dict[str, Any], mcp_client: Any, action_mappings: dict[str, Any] | None = None) -> dict[str, Any]:
+async def execute_tool(
+    tool_call: dict[str, Any], mcp_client: Any, action_mappings: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Execute a tool call through MCP.
 
     Handles both:
@@ -91,6 +94,7 @@ async def execute_tool(tool_call: dict[str, Any], mcp_client: Any, action_mappin
         "data": Any | None
     }
     """
+
     # Standard error response helper
     def error_response(text: str) -> dict[str, Any]:
         return {"success": False, "text": text, "image": None, "data": None}
@@ -128,14 +132,10 @@ async def execute_tool(tool_call: dict[str, Any], mcp_client: Any, action_mappin
 
         if tool_name not in ["setup", "evaluate"] and action_mappings:
             action_name = tool_name
-            mcp_args = create_computer_action_args(
-                action_name,
-                tool_args,
-                action_mappings
-            )
+            mcp_args = create_computer_action_args(action_name, tool_args, action_mappings)
             if mcp_args is None:
                 return error_response(f"Unknown action '{action_name}'")
-            
+
             tool_name = "computer"
             tool_args = mcp_args
 
@@ -173,11 +173,7 @@ async def execute_tool(tool_call: dict[str, Any], mcp_client: Any, action_mappin
                 elif isinstance(content, types.ImageContent):
                     image_data = content.data
 
-        return success_response(
-            text=text_content or "Success",
-            image=image_data,
-            data=structured_data
-        )
+        return success_response(text=text_content or "Success", image=image_data, data=structured_data)
 
     except Exception as e:
         logger.error(f"Tool execution failed: {e}")

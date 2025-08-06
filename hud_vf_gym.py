@@ -40,7 +40,7 @@ class HUDGym(vf.MultiTurnEnv):
         self.tool_parser = ToolXMLParser(
             fields=["think", "tool"],
             xml_weight=parser_config.get("xml_weight", 0.6),
-            action_weight=parser_config.get("action_weight", 0.4)
+            action_weight=parser_config.get("action_weight", 0.4),
         )
         self.result_parser = XMLParser(fields=["result"])
 
@@ -104,7 +104,7 @@ class HUDGym(vf.MultiTurnEnv):
         # Parse for tool call
         parsed = self.tool_parser.parse(response_text)
         if not (hasattr(parsed, "tool") and parsed.tool):
-            error_msg = 'No tool found in response. You must use a tool to interact. Expected format: <tool>action_name(args)</tool>'
+            error_msg = "No tool found in response. You must use a tool to interact. Expected format: <tool>action_name(args)</tool>"
             return [{"role": "user", "content": f"<result>Error: {error_msg}</result>"}], state
 
         # Check if action was successfully parsed
@@ -120,7 +120,6 @@ class HUDGym(vf.MultiTurnEnv):
 
         # Return empty to continue - action will be executed in rollout
         return [], state
-
 
     async def rollout(
         self,
@@ -215,11 +214,7 @@ class HUDGym(vf.MultiTurnEnv):
                     elif "pending_action" in state:
                         action_dict = state.pop("pending_action")
 
-                        tool_result = await execute_tool(
-                            action_dict,
-                            mcp_client,
-                            self.config.get("action_mappings")
-                        )
+                        tool_result = await execute_tool(action_dict, mcp_client, self.config.get("action_mappings"))
 
                         result_text = tool_result["text"]
                         result_image = tool_result.get("image")
