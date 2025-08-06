@@ -125,18 +125,19 @@ async def execute_tool(tool_call: dict[str, Any], mcp_client: Any, action_mappin
 
         if not tool_name:
             return error_response("Tool name is required")
-        
-        if tool_name == "computer" and action_mappings:
+
+        if tool_name not in ["setup", "evaluate"] and action_mappings:
             action_name = tool_name
-            args = create_computer_action_args(
+            mcp_args = create_computer_action_args(
                 action_name,
                 tool_args,
                 action_mappings
             )
-            if args is None:
+            if mcp_args is None:
                 return error_response(f"Unknown action '{action_name}'")
-
-            tool_args = args
+            
+            tool_name = "computer"
+            tool_args = mcp_args
 
         # Execute
         result = await session.connector.client_session.call_tool(tool_name, tool_args)
