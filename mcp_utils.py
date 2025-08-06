@@ -126,21 +126,32 @@ async def execute_tool(tool_call: dict[str, Any] | MCPToolCall, mcp_client: Any,
             tool_name = tool_call.name
             tool_args = tool_call.arguments
         else:
-            # Agent action - map to computer tool
-            if not action_mappings:
-                return error_response("Action mappings required")
-
-            action_name = tool_call["name"]
-            mcp_args = create_computer_action_args(
-                action_name,
-                tool_call.get("arguments", {}),
-                action_mappings
-            )
-            if mcp_args is None:
-                return error_response(f"Unknown action '{action_name}'")
-
-            tool_name = "computer"
-            tool_args = mcp_args
+            # Dictionary format - check if it's a direct MCP tool or an agent action
+            tool_name = tool_call.get("name")
+            tool_args = tool_call.get("arguments", {})
+            
+            # List of direct MCP tools that don't need action mapping
+            direct_mcp_tools = ["setup", "evaluate", "anthropic_computer", "openai_computer"]
+            
+            if tool_name in direct_mcp_tools:
+                # Direct MCP tool call - use as is
+                pass
+            else:
+                # Agent action - needs mapping to computer tool
+                if not action_mappings:
+                    return error_response("Action mappings required")
+                
+                action_name = tool_name
+                mcp_args = create_computer_action_args(
+                    action_name,
+                    tool_args,
+                    action_mappings
+                )
+                if mcp_args is None:
+                    return error_response(f"Unknown action '{action_name}'")
+                
+                tool_name = "computer"
+                tool_args = mcp_args
 
         # Execute
         result = await session.connector.client_session.call_tool(tool_name, tool_args)

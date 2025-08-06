@@ -32,8 +32,12 @@ def load_environment(
         with open(source) as f:
             taskset_data = json.load(f)
 
-        # Get tasks
-        task_list = taskset_data.get("tasks", [])
+        # Get tasks - handle both list and dict formats
+        if isinstance(taskset_data, list):
+            task_list = taskset_data
+        else:
+            task_list = taskset_data.get("tasks", [])
+        
         if num_tasks is not None:
             task_list = task_list[:num_tasks]
 

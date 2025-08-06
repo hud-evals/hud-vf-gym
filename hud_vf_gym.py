@@ -263,7 +263,6 @@ class HUDGym(vf.MultiTurnEnv):
 
                         # Check if task is complete
                         if action_dict.get("name") == "done":
-                            state["tool_successes"] = state.get("tool_successes", 0) + 1
                             is_completed = True
                             break
 

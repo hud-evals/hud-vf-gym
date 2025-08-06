@@ -138,10 +138,10 @@ class ToolXMLParser(XMLParser):
         # Get the base XML format reward function
         xml_reward_func = super().get_format_reward_func()
 
-        def combined_format_reward_func(completion: list[ChatMessage], **kwargs) -> float:
+        def combined_format_reward_func(completion: list[ChatMessage], parser=None, **kwargs) -> float:
             """Check both XML format and action syntax."""
             # First get XML format score
-            xml_score = xml_reward_func(completion, **kwargs)
+            xml_score = xml_reward_func(completion, parser=parser, **kwargs)
 
             # Then check action syntax validity
             valid_actions = 0
