@@ -5,12 +5,12 @@ description = "HUD environments for Reinforcement Learning through Verifiers"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "verifiers[all] @ git+https://github.com/jdchawla29/verifiers.git",
-    "hud-python"
+    "verifiers>=0.1.2",
+    "hud-python>=0.3.5"
 ]
 
 [build-system]
-requires = ["hatchling", "editables>=0.5"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
@@ -52,4 +52,4 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.uv.sources]
-"hud-python" = { path = "../../..", editable = true }
+"hud-python" = { workspace = true }
