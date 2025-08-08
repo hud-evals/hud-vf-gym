@@ -1,5 +1,5 @@
 [project]
-name = "hud_vf_gym"
+name = "hud-vf-gym"
 version = "0.1.0"
 description = "HUD environments for Reinforcement Learning through Verifiers"
 readme = "README.md"
