@@ -53,3 +53,4 @@ line-ending = "auto"
 
 [tool.uv.sources]
 "hud-python" = { workspace = true }
+"verifiers" = { workspace = true }

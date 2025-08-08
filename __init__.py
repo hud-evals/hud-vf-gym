@@ -1,15 +1,14 @@
-"""MCP-based HUD Gym environment for verifiers."""
+"""HUD Gym v2 - Environment for HUD tasks with verifiers."""
 
 from datasets import Dataset, load_dataset
 from hud.datasets import to_taskconfigs
 
 from .hud_vf_gym import HUDGym
-from .rubrics import HUDToolRubric
+from .rubrics import HUDEvaluationRubric
 
 
 def load_environment(
     taskset: str = "hud-evals/gmail-taskset",
-    config_path: str | None = None,
     num_tasks: int | None = None,
     split: str = "train",
     **kwargs,
@@ -17,8 +16,7 @@ def load_environment(
     """Load HUDGym environment from a HuggingFace dataset.
 
     Args:
-        source: HuggingFace dataset identifier (default: hud-evals/gmail-taskset)
-        config_path: Optional path to config file
+        taskset: HuggingFace dataset identifier (default: hud-evals/gmail-taskset)
         num_tasks: Optional limit on number of tasks to load
         split: Dataset split to load (default: train)
         **kwargs: Additional arguments passed to HUDGym
@@ -53,13 +51,13 @@ def load_environment(
         }
     )
 
-    return HUDGym(dataset=dataset, config_path=config_path, **kwargs)
+    return HUDGym(dataset=dataset, **kwargs)
 
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
 
 __all__ = [
     "HUDGym",
+    "HUDEvaluationRubric",
     "load_environment",
-    "HUDToolRubric",
 ]
