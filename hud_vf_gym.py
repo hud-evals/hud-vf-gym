@@ -15,7 +15,7 @@ from verifiers.parsers.xml_parser import XMLParser
 
 from .mcp_utils import execute_tool
 from .parsers import ToolXMLParser
-from .rubrics import HUDToolRubric
+from .rubrics import HUDBaseRubric
 
 
 class HUDGym(vf.MultiTurnEnv):
@@ -39,6 +39,7 @@ class HUDGym(vf.MultiTurnEnv):
         parser_config = self.config.get("parser", {})
         self.tool_parser = ToolXMLParser(
             fields=["think", "tool"],
+            action_mappings=self.config.get("action_mappings", {}),
             xml_weight=parser_config.get("xml_weight", 0.6),
             action_weight=parser_config.get("action_weight", 0.4),
         )
@@ -47,7 +48,7 @@ class HUDGym(vf.MultiTurnEnv):
         rubric_config = self.config.get("rubric", {})
         rubric_weights = rubric_config.get("weights", None)
 
-        rubric = HUDToolRubric(parser=self.tool_parser, weights=rubric_weights)
+        rubric = HUDBaseRubric(parser=self.tool_parser, weights=rubric_weights)
 
         super().__init__(
             dataset=dataset,
@@ -214,7 +215,12 @@ class HUDGym(vf.MultiTurnEnv):
                     elif "pending_action" in state:
                         action_dict = state.pop("pending_action")
 
-                        tool_result = await execute_tool(action_dict, mcp_client, self.config.get("action_mappings"))
+                        tool_result = await execute_tool(
+                            action_dict, 
+                            mcp_client, 
+                            self.config.get("action_mappings"),
+                            self.config.get("default_tool", "computer")
+                        )
 
                         result_text = tool_result["text"]
                         result_image = tool_result.get("image")
@@ -272,14 +278,21 @@ class HUDGym(vf.MultiTurnEnv):
 
                 # Handle the evaluation result
                 if eval_result["success"]:
-                    # Check if we have structured data with grade
-                    if eval_result["data"] and isinstance(eval_result["data"], dict) and "grade" in eval_result["data"]:
-                        state["reward"] = float(eval_result["data"]["grade"])
-                        self.logger.info(f"Task {task} evaluation grade: {state['reward']:.2f}")
+                    # Check if we have structured data with grade or reward
+                    if eval_result["data"] and isinstance(eval_result["data"], dict):
+                        # Check for both "grade" and "reward" fields
+                        if "grade" in eval_result["data"]:
+                            state["reward"] = float(eval_result["data"]["grade"])
+                            self.logger.info(f"Task {task} evaluation grade: {state['reward']:.2f}")
+                        elif "reward" in eval_result["data"]:
+                            state["reward"] = float(eval_result["data"]["reward"])
+                            self.logger.info(f"Task {task} evaluation reward: {state['reward']:.2f}")
+                        else:
+                            # No grade/reward available, but evaluation succeeded
+                            self.logger.warning(f"Evaluation succeeded but no grade/reward found: {eval_result}")
                     else:
-                        # No grade available, but evaluation succeeded
-                        self.logger.warning(f"Evaluation succeeded but no grade found: {eval_result}")
-                        state["reward"] = 1.0 if is_completed else 0.0
+                        # No structured data available
+                        self.logger.warning(f"Evaluation succeeded but no structured data: {eval_result}")
                 else:
                     # Evaluation failed
                     self.logger.error(f"Evaluation failed: {eval_result['text']}")

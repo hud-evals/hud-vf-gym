@@ -4,7 +4,7 @@ from datasets import Dataset, load_dataset
 from hud.datasets import to_taskconfigs
 
 from .hud_vf_gym import HUDGym
-from .rubrics import HUDToolRubric
+from .rubrics import HUDBaseRubric
 
 
 def load_environment(
@@ -61,5 +61,5 @@ __version__ = "0.1.0"
 __all__ = [
     "HUDGym",
     "load_environment",
-    "HUDToolRubric",
+    "HUDBaseRubric",
 ]

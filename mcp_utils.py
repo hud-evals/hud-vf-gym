@@ -8,13 +8,54 @@ import mcp.types as types
 logger = logging.getLogger(__name__)
 
 
+def apply_transform(value: Any, transform_str: str, context: dict[str, Any] | None = None) -> Any:
+    """Apply a transform defined as a lambda string.
+    
+    Args:
+        value: The value to transform
+        transform_str: Lambda string like "lambda x: x.split('+')"
+        context: Optional context dict for transforms that need other arguments
+    
+    Returns:
+        Transformed value
+    """
+    if not transform_str:
+        return value
+    
+    # Create safe eval context with common functions
+    safe_dict = {
+        'int': int,
+        'float': float,
+        'str': str,
+        'len': len,
+        'abs': abs,
+        'min': min,
+        'max': max,
+        # Add other safe functions as needed
+    }
+    
+    try:
+        # Evaluate the lambda with safe functions available
+        # The lambda can use functions from safe_dict
+        transform_func = eval(transform_str, {"__builtins__": {}, **safe_dict}, {})
+        
+        # Check if transform expects context
+        if context is not None and "ctx" in transform_str:
+            return transform_func(value, context)
+        else:
+            return transform_func(value)
+    except Exception as e:
+        logger.warning(f"Transform failed: {e}, returning original value")
+        return value
+
+
 def create_computer_action_args(
     action_name: str, action_args: dict[str, Any], action_mappings: dict[str, Any]
 ) -> dict[str, Any] | None:
-    """Create MCP computer tool arguments from agent action calls.
+    """Create MCP tool arguments from agent action calls using config.
 
-    Maps agent action names (click, type, etc.) to the MCP computer tool's expected format.
-    Returns None if action is unknown.
+    Maps agent action names to the MCP tool's expected format using
+    transforms defined as lambda strings in the config.
     """
     if action_name not in action_mappings:
         return None
@@ -36,33 +77,13 @@ def create_computer_action_args(
 
                 # Apply transform if specified
                 if "transform" in value and arg_value is not None:
-                    transform = value["transform"]
-                    if transform == "split_plus":
-                        # Split "ctrl+a" into ["ctrl", "a"]
-                        mcp_args[key] = arg_value.split("+") if isinstance(arg_value, str) else [arg_value]
-                    elif transform == "seconds_to_ms":
-                        # Convert seconds to milliseconds
-                        mcp_args[key] = int(arg_value * 1000)
-                    elif transform == "direction_to_scroll_x":
-                        # Get amount from action_args if available
-                        amount = action_args.get("amount", mapping.get("_amount", {}).get("default", 3))
-                        if arg_value == "right":
-                            mcp_args[key] = amount
-                        elif arg_value == "left":
-                            mcp_args[key] = -amount
-                        else:
-                            mcp_args[key] = 0
-                    elif transform == "direction_to_scroll_y":
-                        # Get amount from action_args if available
-                        amount = action_args.get("amount", mapping.get("_amount", {}).get("default", 3))
-                        if arg_value == "down":
-                            mcp_args[key] = amount
-                        elif arg_value == "up":
-                            mcp_args[key] = -amount
-                        else:
-                            mcp_args[key] = 0
-                else:
-                    mcp_args[key] = arg_value
+                    # Check if transform needs context
+                    if value.get("use_context"):
+                        arg_value = apply_transform(arg_value, value["transform"], action_args)
+                    else:
+                        arg_value = apply_transform(arg_value, value["transform"])
+                
+                mcp_args[key] = arg_value
             elif "from_args" in value:
                 # Build list from multiple args
                 defaults = value.get("defaults", [])
@@ -78,13 +99,13 @@ def create_computer_action_args(
 
 
 async def execute_tool(
-    tool_call: dict[str, Any], mcp_client: Any, action_mappings: dict[str, Any] | None = None
+    tool_call: dict[str, Any], mcp_client: Any, action_mappings: dict[str, Any] | None = None, default_tool: str = "computer"
 ) -> dict[str, Any]:
     """Execute a tool call through MCP.
 
     Handles both:
     - Direct MCP tool calls for setup/evaluate
-    - Agent action calls that need mapping to computer tool format
+    - Agent action calls that need mapping to specified MCP tool
 
     Always returns:
     {
@@ -130,14 +151,27 @@ async def execute_tool(
         if not tool_name:
             return error_response("Tool name is required")
 
-        if tool_name not in ["setup", "evaluate"] and action_mappings:
+        # Check if we should map this action through action_mappings
+        if action_mappings and tool_name in action_mappings:
+            # Transform the action using mappings
+            logger.debug(f"Mapping action '{tool_name}' using action_mappings")
             action_name = tool_name
+            mapping = action_mappings[action_name]
+            
+            # Get the MCP tool to use from _tool field (required)
+            assert "_tool" in mapping, f"Action '{action_name}' missing '_tool' field in config"
+            tool_name = mapping["_tool"]
+            
+            # Create the arguments for the MCP tool
             mcp_args = create_computer_action_args(action_name, tool_args, action_mappings)
             if mcp_args is None:
-                return error_response(f"Unknown action '{action_name}'")
-
-            tool_name = "computer"
+                return error_response(f"Failed to map action '{action_name}'")
+            
             tool_args = mcp_args
+            logger.debug(f"Mapped to MCP tool '{tool_name}' with args: {tool_args}")
+        else:
+            # Direct MCP tool call (setup, evaluate, or unmapped tools)
+            logger.debug(f"Direct MCP tool call: '{tool_name}' with args: {tool_args}")
 
         # Execute
         result = await session.connector.client_session.call_tool(tool_name, tool_args)

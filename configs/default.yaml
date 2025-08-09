@@ -55,9 +55,15 @@ defaults:
 # These map the agent's action names to the MCP computer tool's action format
 action_mappings:
   screenshot:
+    _parser:
+      positional: []  # No arguments
+    _tool: "computer"  # Maps to the MCP computer tool
     action: "screenshot"
   
   click:
+    _parser:
+      positional: ["x", "y"]
+    _tool: "computer"
     action: "click"
     x:
       from_arg: "x"
@@ -65,18 +71,27 @@ action_mappings:
       from_arg: "y"
   
   type:
+    _parser:
+      positional: ["text"]
+    _tool: "computer"
     action: "type"
     text:
       from_arg: "text"
       default: ""
   
   key:
+    _parser:
+      positional: ["key"]
+    _tool: "computer"
     action: "press"
     keys:
       from_arg: "key"
-      transform: "split_plus"
+      transform: "lambda x: x.split('+')"
   
   scroll:
+    _parser:
+      positional: ["direction", "amount"]
+    _tool: "computer"
     action: "scroll"
     x:
       static: 640
@@ -84,19 +99,21 @@ action_mappings:
       static: 400
     scroll_x:
       from_arg: "direction"
-      transform: "direction_to_scroll_x"
+      transform: "lambda d, ctx: ctx.get('amount', 3) if d == 'right' else -ctx.get('amount', 3) if d == 'left' else 0"
+      use_context: true
     scroll_y:
       from_arg: "direction"
-      transform: "direction_to_scroll_y"
-    _amount:
-      from_arg: "amount"
-      default: 3
+      transform: "lambda d, ctx: ctx.get('amount', 3) if d == 'down' else -ctx.get('amount', 3) if d == 'up' else 0"
+      use_context: true
   
   wait:
+    _parser:
+      positional: ["seconds"]
+    _tool: "computer"
     action: "wait"
     time:
       from_arg: "seconds"
-      transform: "seconds_to_ms"
+      transform: "lambda x: int(x * 1000)"
       default: 1000
 
 # Parser configuration
@@ -107,11 +124,9 @@ parser:
 # Rubric configuration
 rubric:
   weights:
-    task_completion: 0.75      # Primary task completion from HUD evaluation
-    tool_execution: 0.05       # Successful tool execution rate
-    format_compliance: 0.1    # XML format and action syntax
-    screenshot_behavior: 0.05 # Taking screenshot first
-    thinking_quality: 0.05    # Concise, quality thinking
+    task_completion: 0.8       # Primary task completion from HUD evaluation
+    tool_execution: 0.1        # Successful tool execution rate
+    format_compliance: 0.1     # XML format and action syntax
 
 # Logging configuration
 logging:

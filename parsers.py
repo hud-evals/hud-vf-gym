@@ -14,16 +14,19 @@ class ToolXMLParser(XMLParser):
     def __init__(
         self,
         fields: list[str | tuple[str, ...]],
+        action_mappings: dict[str, Any] | None = None,
         xml_weight: float = 0.6,
         action_weight: float = 0.4,
     ):
         """Initialize the ToolXMLParser.
         Args:
             fields: XML fields to parse
+            action_mappings: Action mapping configuration from environment config
             xml_weight: Weight for XML format score (default 0.6)
             action_weight: Weight for action syntax score (default 0.4)
         """
         super().__init__(fields)
+        self.action_mappings = action_mappings or {}
         self.xml_weight = xml_weight
         self.action_weight = action_weight
         # Normalize weights
@@ -49,15 +52,10 @@ class ToolXMLParser(XMLParser):
         return result
 
     def _parse_action(self, call_str: str) -> dict[str, Any]:
-        """Parse function call syntax into action dict.
-        Examples:
-            'screenshot()' -> {"name": "screenshot", "arguments": {}}
-            'click(100, 200)' -> {"name": "click", "arguments": {"x": 100, "y": 200}}
-            'type("hello world")' -> {"name": "type", "arguments": {"text": "hello world"}}
-            'key("ctrl+a")' -> {"name": "key", "arguments": {"key": "ctrl+a"}}
-            'scroll("down", 3)' -> {"name": "scroll", "arguments": {"direction": "down", "amount": 3}}
-            'wait(2.5)' -> {"name": "wait", "arguments": {"seconds": 2.5}}
-            'done()' -> {"name": "done", "arguments": {}}
+        """Parse function call syntax into action dict using config.
+        
+        Uses action_mappings to understand expected arguments for each tool.
+        Falls back to generic parsing if tool not in mappings.
         """
         # Match function name and arguments
         match = re.match(r"(\w+)\((.*)\)", call_str.strip())
@@ -67,50 +65,85 @@ class ToolXMLParser(XMLParser):
         action_name = match.group(1)
         args_str = match.group(2).strip()
 
-        # Parse arguments based on action type
+        # Parse arguments
         if not args_str:
             # No arguments (e.g., screenshot(), done())
             return {"name": action_name, "arguments": {}}
 
-        # Special handling for each action type
-        if action_name == "click":
-            # Parse: click(x, y)
-            parts = args_str.split(",")
-            if len(parts) != 2:
-                raise ValueError(f"click() expects 2 arguments, got {len(parts)}")
-            return {"name": "click", "arguments": {"x": int(parts[0].strip()), "y": int(parts[1].strip())}}
-
-        elif action_name == "type":
-            # Parse: type("text") or type('text')
-            match = re.match(r'^["\'](.+)["\']$', args_str)
-            if not match:
-                raise ValueError("type() expects a quoted string argument")
-            return {"name": "type", "arguments": {"text": match.group(1)}}
-
-        elif action_name == "key":
-            # Parse: key("key_name")
-            match = re.match(r'^["\'](.+)["\']$', args_str)
-            if not match:
-                raise ValueError("key() expects a quoted string argument")
-            return {"name": "key", "arguments": {"key": match.group(1)}}
-
-        elif action_name == "scroll":
-            # Parse: scroll("direction", amount)
-            match = re.match(r'^["\'](\w+)["\'],\s*(\d+)$', args_str)
-            if not match:
-                raise ValueError("scroll() expects a quoted direction and numeric amount")
-            return {"name": "scroll", "arguments": {"direction": match.group(1), "amount": int(match.group(2))}}
-
-        elif action_name == "wait":
-            # Parse: wait(seconds)
-            try:
-                seconds = float(args_str)
-                return {"name": "wait", "arguments": {"seconds": seconds}}
-            except ValueError as e:
-                raise ValueError("wait() expects a numeric argument") from e
-
-        else:
-            raise ValueError(f"Unknown action: {action_name}")
+        # Parse the argument string into a list of values
+        args = self._parse_argument_string(args_str)
+        
+        # Get positional argument names from config if available
+        positional_names = []
+        if action_name in self.action_mappings:
+            parser_config = self.action_mappings[action_name].get("_parser", {})
+            positional_names = parser_config.get("positional", [])
+        
+        # Map positional arguments to named arguments
+        arguments = {}
+        for i, arg_value in enumerate(args):
+            if i < len(positional_names):
+                arg_name = positional_names[i]
+            else:
+                # Fallback to generic naming if not in config
+                arg_name = f"arg{i}"
+            arguments[arg_name] = arg_value
+        
+        return {"name": action_name, "arguments": arguments}
+    
+    def _parse_argument_string(self, args_str: str) -> list[Any]:
+        """Parse comma-separated arguments, handling quoted strings and numbers."""
+        if not args_str:
+            return []
+        
+        args = []
+        current_arg = ""
+        in_quotes = False
+        quote_char = None
+        paren_depth = 0
+        
+        for char in args_str:
+            if char in ('"', "'") and not in_quotes:
+                in_quotes = True
+                quote_char = char
+                current_arg += char
+            elif char == quote_char and in_quotes and paren_depth == 0:
+                in_quotes = False
+                quote_char = None
+                current_arg += char
+            elif char == '(' and not in_quotes:
+                paren_depth += 1
+                current_arg += char
+            elif char == ')' and not in_quotes:
+                paren_depth -= 1
+                current_arg += char
+            elif char == ',' and not in_quotes and paren_depth == 0:
+                args.append(self._parse_single_arg(current_arg.strip()))
+                current_arg = ""
+            else:
+                current_arg += char
+        
+        # Don't forget the last argument
+        if current_arg:
+            args.append(self._parse_single_arg(current_arg.strip()))
+        
+        return args
+    
+    def _parse_single_arg(self, arg: str) -> Any:
+        """Parse a single argument value."""
+        # Remove quotes if present
+        if (arg.startswith('"') and arg.endswith('"')) or (arg.startswith("'") and arg.endswith("'")):
+            return arg[1:-1]
+        
+        # Try to parse as number
+        try:
+            if '.' in arg:
+                return float(arg)
+            else:
+                return int(arg)
+        except ValueError:
+            # Keep as string
+            return arg
 
     def get_format_reward_func(self) -> Callable:
         """Return a reward function that validates both XML format and action syntax."""
