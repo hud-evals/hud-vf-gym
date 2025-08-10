@@ -52,4 +52,5 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.uv.sources]
-"hud-python" = { workspace = true }
+verifiers = { git = "https://github.com/jdchawla29/verifiers" }
+
