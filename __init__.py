@@ -1,5 +1,6 @@
 """MCP-based HUD Gym environment for verifiers."""
 
+import json
 from datasets import Dataset, load_dataset
 from hud.datasets import to_taskconfigs
 
@@ -36,6 +37,7 @@ def load_environment(
     task_configs = to_taskconfigs(hf_dataset)
 
     # Create dataset with proper structure for verifiers
+    # Store tools as JSON strings to avoid HuggingFace dataset schema inference issues
     dataset = Dataset.from_dict(
         {
             "question": [task.prompt for task in task_configs],
@@ -43,10 +45,10 @@ def load_environment(
             "answer": [task.metadata.get("answer", "") for task in task_configs],
             "info": [
                 {
-                    "mcp_config": task.mcp_config,
-                    "setup_tool": task.setup_tool.model_dump() if task.setup_tool else None,
-                    "evaluate_tool": task.evaluate_tool.model_dump() if task.evaluate_tool else None,
-                    "metadata": task.metadata,
+                    "mcp_config": json.dumps(task.mcp_config),
+                    "setup_tool": json.dumps(task.setup_tool.model_dump()) if task.setup_tool else None,
+                    "evaluate_tool": json.dumps(task.evaluate_tool.model_dump()) if task.evaluate_tool else None,
+                    "metadata": json.dumps(task.metadata),
                 }
                 for task in task_configs
             ],

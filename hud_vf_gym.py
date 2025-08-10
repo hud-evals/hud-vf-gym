@@ -1,5 +1,7 @@
 """HUD Gym environment using XML format for tool calls with MCP backend."""
 
+import json
+import logging
 from copy import deepcopy
 from pathlib import Path
 
@@ -7,7 +9,7 @@ import hud
 import verifiers as vf
 import yaml
 from datasets import Dataset
-from hud.mcp.client import MCPClient
+from hud.client import MCPClient
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from verifiers import ChatMessage, Info, Messages, SamplingArgs, State
@@ -16,7 +18,6 @@ from verifiers.parsers.xml_parser import XMLParser
 from .mcp_utils import execute_tool
 from .parsers import ToolXMLParser
 from .rubrics import HUDBaseRubric
-
 
 class HUDGym(vf.MultiTurnEnv):
     """HUD environment using XML format for tool calls with MCP backend."""
@@ -58,6 +59,8 @@ class HUDGym(vf.MultiTurnEnv):
             max_turns=max_turns,
             **kwargs,
         )
+
+        self.logger.setLevel(self.config.get("logging", {}).get("level", "INFO"))
 
     def setup_state(self, state: State, **kwargs) -> State:
         """Setup initial state with tool tracking."""
@@ -155,9 +158,19 @@ class HUDGym(vf.MultiTurnEnv):
 
         # Extract HUD-specific data from info dict
         task_info = info or {}
+        
+        # Parse JSON strings back to dicts if needed
         mcp_config = task_info.get("mcp_config")
+        if isinstance(mcp_config, str):
+            mcp_config = json.loads(mcp_config)
+            
         setup_tool = task_info.get("setup_tool")
+        if isinstance(setup_tool, str):
+            setup_tool = json.loads(setup_tool)
+            
         evaluate_tool = task_info.get("evaluate_tool")
+        if isinstance(evaluate_tool, str):
+            evaluate_tool = json.loads(evaluate_tool)
 
         mcp_client = None
 
@@ -165,12 +178,22 @@ class HUDGym(vf.MultiTurnEnv):
             with hud.trace(f"rollout_{task}"):
                 assert mcp_config, "mcp_config must be provided"
                 mcp_client = MCPClient(mcp_config=mcp_config)
+                self.logger.info(f"Initializing MCP client with config: {mcp_config}")
                 await mcp_client.initialize()
+                self.logger.info("MCP client initialized successfully")
 
                 assert setup_tool, "setup_tool must be provided"
+                self.logger.info(f"Running setup tool: {setup_tool}")
                 setup_result = await execute_tool(setup_tool, mcp_client)
                 if not setup_result["success"]:
                     raise RuntimeError(f"Setup tool failed: {setup_result['text']}")
+
+                # Add setup result as first user message if it has content
+                if setup_result.get("text"):
+                    setup_message: ChatMessage = {"role": "user", "content": setup_result["text"]}
+                    rollout.append(setup_message)
+                    completion.append(setup_message)
+                    self.logger.debug(f"Added setup message to rollout: {setup_result['text'][:100]}...")
 
                 turn = 0
                 while not is_completed and turn < self.max_turns:

@@ -49,7 +49,7 @@ def apply_transform(value: Any, transform_str: str, context: dict[str, Any] | No
         return value
 
 
-def create_computer_action_args(
+def create_action_args(
     action_name: str, action_args: dict[str, Any], action_mappings: dict[str, Any]
 ) -> dict[str, Any] | None:
     """Create MCP tool arguments from agent action calls using config.
@@ -134,16 +134,10 @@ async def execute_tool(
         return success_response("Task completed")
 
     try:
-        # Get session
-        sessions = mcp_client.get_all_active_sessions()
-        if not sessions:
-            logger.error("No active MCP sessions")
-            return error_response("No active MCP sessions")
-
-        session = next(iter(sessions.values()))
-        if not session.connector.client_session:
-            logger.error("MCP session not properly initialized")
-            return error_response("MCP session not properly initialized")
+        # Check if client is initialized
+        if hasattr(mcp_client, 'is_connected') and not mcp_client.is_connected:
+            logger.warning("MCP client not connected, attempting to initialize...")
+            await mcp_client.initialize()
 
         tool_name = tool_call.get("name")
         tool_args = tool_call.get("arguments", {})
@@ -163,7 +157,7 @@ async def execute_tool(
             tool_name = mapping["_tool"]
             
             # Create the arguments for the MCP tool
-            mcp_args = create_computer_action_args(action_name, tool_args, action_mappings)
+            mcp_args = create_action_args(action_name, tool_args, action_mappings)
             if mcp_args is None:
                 return error_response(f"Failed to map action '{action_name}'")
             
@@ -174,7 +168,7 @@ async def execute_tool(
             logger.debug(f"Direct MCP tool call: '{tool_name}' with args: {tool_args}")
 
         # Execute
-        result = await session.connector.client_session.call_tool(tool_name, tool_args)
+        result = await mcp_client.call_tool(tool_name, tool_args)
 
         # Handle errors
         if result.isError:

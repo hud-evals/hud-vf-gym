@@ -42,7 +42,7 @@ system_prompt: |
 
 # Default settings
 defaults:
-  max_turns: 50
+  max_turns: 200
 
 # Action mappings for 2048 game tools
 # Each direction is exposed as a separate tool to the agent
@@ -85,11 +85,9 @@ parser:
 rubric:
   weights:
     task_completion: 0.8       # Primary score from evaluation (max tile achieved)
-    tool_execution: 0.05       # Successful move execution rate
+    tool_execution: 0.1       # Successful move execution rate
     format_compliance: 0.1     # XML format and action syntax
-    thinking_quality: 0.05     # Strategic thinking quality
 
 # Logging configuration
 logging:
-  level: "INFO"
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  level: "DEBUG"
