@@ -2,15 +2,14 @@
 
 import json
 from datasets import Dataset, load_dataset
-from hud.datasets import to_taskconfigs
 
 from .hud_vf_gym import HUDGym
 from .rubrics import HUDBaseRubric
 
 
 def load_environment(
-    taskset: str = "hud-evals/gmail-taskset",
-    config_path: str | None = None,
+    taskset: str,
+    config_path: str,
     num_tasks: int | None = None,
     split: str = "train",
     **kwargs,
@@ -18,8 +17,8 @@ def load_environment(
     """Load HUDGym environment from a HuggingFace dataset.
 
     Args:
-        source: HuggingFace dataset identifier (default: hud-evals/gmail-taskset)
-        config_path: Optional path to config file
+        taskset: HuggingFace dataset identifier (required)
+        config_path: Path to config file (required)
         num_tasks: Optional limit on number of tasks to load
         split: Dataset split to load (default: train)
         **kwargs: Additional arguments passed to HUDGym
@@ -32,25 +31,21 @@ def load_environment(
 
     if num_tasks is not None:
         hf_dataset = hf_dataset.select(range(num_tasks))
-
-    # Convert to TaskConfigs to extract HUD-specific fields
-    task_configs = to_taskconfigs(hf_dataset)
-
-    # Create dataset with proper structure for verifiers
-    # Store tools as JSON strings to avoid HuggingFace dataset schema inference issues
+    
+    # Create dataset for verifiers
     dataset = Dataset.from_dict(
         {
-            "question": [task.prompt for task in task_configs],
-            "task": [task.id or f"task_{i}" for i, task in enumerate(task_configs)],
-            "answer": [task.metadata.get("answer", "") for task in task_configs],
+            "question": hf_dataset["prompt"],
+            "task": [hf_dataset[i].get("id", f"task_{i}") for i in range(len(hf_dataset))],
+            "answer": [hf_dataset[i].get("metadata", {}).get("answer", "") if isinstance(hf_dataset[i].get("metadata"), dict) else "" for i in range(len(hf_dataset))],
             "info": [
                 {
-                    "mcp_config": json.dumps(task.mcp_config),
-                    "setup_tool": json.dumps(task.setup_tool.model_dump()) if task.setup_tool else None,
-                    "evaluate_tool": json.dumps(task.evaluate_tool.model_dump()) if task.evaluate_tool else None,
-                    "metadata": json.dumps(task.metadata),
+                    "mcp_config": hf_dataset[i]["mcp_config"] if isinstance(hf_dataset[i]["mcp_config"], str) else json.dumps(hf_dataset[i]["mcp_config"]),
+                    "setup_tool": hf_dataset[i].get("setup_tool") if isinstance(hf_dataset[i].get("setup_tool"), str) else json.dumps(hf_dataset[i].get("setup_tool")) if hf_dataset[i].get("setup_tool") else None,
+                    "evaluate_tool": hf_dataset[i].get("evaluate_tool") if isinstance(hf_dataset[i].get("evaluate_tool"), str) else json.dumps(hf_dataset[i].get("evaluate_tool")) if hf_dataset[i].get("evaluate_tool") else None,
+                    "metadata": hf_dataset[i].get("metadata") if isinstance(hf_dataset[i].get("metadata"), str) else json.dumps(hf_dataset[i].get("metadata", {})),
                 }
-                for task in task_configs
+                for i in range(len(hf_dataset))
             ],
         }
     )

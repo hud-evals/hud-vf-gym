@@ -10,6 +10,7 @@ import verifiers as vf
 import yaml
 from datasets import Dataset
 from hud.client import MCPClient
+from hud.datasets import TaskConfig
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from verifiers import ChatMessage, Info, Messages, SamplingArgs, State
@@ -25,12 +26,9 @@ class HUDGym(vf.MultiTurnEnv):
     def __init__(
         self,
         dataset: Dataset,
-        config_path: str | None = None,
+        config_path: str,
         **kwargs,
     ):
-        if config_path is None:
-            config_path = str(Path(__file__).parent / "configs" / "default.yaml")
-
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
 
@@ -156,21 +154,20 @@ class HUDGym(vf.MultiTurnEnv):
         completion: list[ChatMessage] = []
         rollout = deepcopy(prompt)
 
-        # Extract HUD-specific data from info dict
+        # Extract HUD-specific data from info dict (all stored as JSON strings)
         task_info = info or {}
         
-        # Parse JSON strings back to dicts if needed
-        mcp_config = task_info.get("mcp_config")
-        if isinstance(mcp_config, str):
-            mcp_config = json.loads(mcp_config)
-            
-        setup_tool = task_info.get("setup_tool")
-        if isinstance(setup_tool, str):
-            setup_tool = json.loads(setup_tool)
-            
-        evaluate_tool = task_info.get("evaluate_tool")
-        if isinstance(evaluate_tool, str):
-            evaluate_tool = json.loads(evaluate_tool)
+        # Create TaskConfig to resolve env vars in mcp_config (only it has ${ENV_VAR} templates)
+        task_config = TaskConfig(
+            prompt="",
+            mcp_config=json.loads(task_info["mcp_config"]),
+            setup_tool=json.loads(task_info["setup_tool"]) if task_info.get("setup_tool") else None,
+            evaluate_tool=json.loads(task_info["evaluate_tool"]) if task_info.get("evaluate_tool") else None
+        )
+        
+        mcp_config = task_config.mcp_config
+        setup_tool = task_config.setup_tool
+        evaluate_tool = task_config.evaluate_tool
 
         mcp_client = None
 
@@ -183,13 +180,19 @@ class HUDGym(vf.MultiTurnEnv):
                 self.logger.info("MCP client initialized successfully")
 
                 assert setup_tool, "setup_tool must be provided"
-                self.logger.info(f"Running setup tool: {setup_tool}")
-                setup_result = await execute_tool(setup_tool, mcp_client)
-                if not setup_result["success"]:
-                    raise RuntimeError(f"Setup tool failed: {setup_result['text']}")
+                
+                # Handle both single tool and list of tools
+                setup_tools = setup_tool if isinstance(setup_tool, list) else [setup_tool]
+                
+                setup_result = None
+                for tool in setup_tools:
+                    self.logger.info(f"Running setup tool: {tool}")
+                    setup_result = await execute_tool(tool, mcp_client)
+                    if not setup_result["success"]:
+                        raise RuntimeError(f"Setup tool failed: {setup_result['text']}")
 
                 # Add setup result as first user message if it has content
-                if setup_result.get("text"):
+                if setup_result and setup_result.get("text"):
                     setup_message: ChatMessage = {"role": "user", "content": setup_result["text"]}
                     rollout.append(setup_message)
                     completion.append(setup_message)
@@ -242,7 +245,6 @@ class HUDGym(vf.MultiTurnEnv):
                             action_dict, 
                             mcp_client, 
                             self.config.get("action_mappings"),
-                            self.config.get("default_tool", "computer")
                         )
 
                         result_text = tool_result["text"]
@@ -297,10 +299,19 @@ class HUDGym(vf.MultiTurnEnv):
                         break
 
                 assert evaluate_tool, "evaluate_tool must be provided in task info"
-                eval_result = await execute_tool(evaluate_tool, mcp_client)
+                
+                # Handle both single tool and list of tools
+                evaluate_tools = evaluate_tool if isinstance(evaluate_tool, list) else [evaluate_tool]
+                
+                eval_result = None
+                for tool in evaluate_tools:
+                    self.logger.info(f"Running evaluate tool: {tool}")
+                    eval_result = await execute_tool(tool, mcp_client)
+                    if not eval_result["success"]:
+                        self.logger.warning(f"Evaluate tool failed: {eval_result['text']}")
 
                 # Handle the evaluation result
-                if eval_result["success"]:
+                if eval_result and eval_result["success"]:
                     # Check if we have structured data with grade or reward
                     if eval_result["data"] and isinstance(eval_result["data"], dict):
                         # Check for both "grade" and "reward" fields
@@ -317,8 +328,11 @@ class HUDGym(vf.MultiTurnEnv):
                         # No structured data available
                         self.logger.warning(f"Evaluation succeeded but no structured data: {eval_result}")
                 else:
-                    # Evaluation failed
-                    self.logger.error(f"Evaluation failed: {eval_result['text']}")
+                    # Evaluation failed or no result
+                    if eval_result:
+                        self.logger.error(f"Evaluation failed: {eval_result['text']}")
+                    else:
+                        self.logger.error("Evaluation failed: No result returned")
                     state["reward"] = 0.0
 
                 if is_completed:

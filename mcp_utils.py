@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 import mcp.types as types
+from hud.types import MCPToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -99,13 +100,13 @@ def create_action_args(
 
 
 async def execute_tool(
-    tool_call: dict[str, Any], mcp_client: Any, action_mappings: dict[str, Any] | None = None, default_tool: str = "computer"
+    tool_call: dict[str, Any] | MCPToolCall, mcp_client: Any, action_mappings: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Execute a tool call through MCP.
 
     Handles both:
-    - Direct MCP tool calls for setup/evaluate
-    - Agent action calls that need mapping to specified MCP tool
+    - Direct MCP tool calls for setup/evaluate (MCPToolCall objects)
+    - Agent action calls that need mapping to specified MCP tool (dicts)
 
     Always returns:
     {
@@ -127,6 +128,10 @@ async def execute_tool(
     if not mcp_client:
         logger.error("MCP client not initialized")
         return error_response("MCP client not initialized")
+    
+    # Convert MCPToolCall to dict if needed
+    if isinstance(tool_call, MCPToolCall):
+        tool_call = tool_call.model_dump()
 
     # Handle 'done' action early
     if isinstance(tool_call, dict) and tool_call.get("name") == "done":
