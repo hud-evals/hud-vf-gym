@@ -53,7 +53,7 @@ class ToolXMLParser(XMLParser):
 
     def _parse_action(self, call_str: str) -> dict[str, Any]:
         """Parse function call syntax into action dict using config.
-        
+
         Uses action_mappings to understand expected arguments for each tool.
         Falls back to generic parsing if tool not in mappings.
         """
@@ -72,13 +72,13 @@ class ToolXMLParser(XMLParser):
 
         # Parse the argument string into a list of values
         args = self._parse_argument_string(args_str)
-        
+
         # Get positional argument names from config if available
         positional_names = []
         if action_name in self.action_mappings:
             parser_config = self.action_mappings[action_name].get("_parser", {})
             positional_names = parser_config.get("positional", [])
-        
+
         # Map positional arguments to named arguments
         arguments = {}
         for i, arg_value in enumerate(args):
@@ -88,20 +88,20 @@ class ToolXMLParser(XMLParser):
                 # Fallback to generic naming if not in config
                 arg_name = f"arg{i}"
             arguments[arg_name] = arg_value
-        
+
         return {"name": action_name, "arguments": arguments}
-    
+
     def _parse_argument_string(self, args_str: str) -> list[Any]:
         """Parse comma-separated arguments, handling quoted strings and numbers."""
         if not args_str:
             return []
-        
+
         args = []
         current_arg = ""
         in_quotes = False
         quote_char = None
         paren_depth = 0
-        
+
         for char in args_str:
             if char in ('"', "'") and not in_quotes:
                 in_quotes = True
@@ -111,33 +111,33 @@ class ToolXMLParser(XMLParser):
                 in_quotes = False
                 quote_char = None
                 current_arg += char
-            elif char == '(' and not in_quotes:
+            elif char == "(" and not in_quotes:
                 paren_depth += 1
                 current_arg += char
-            elif char == ')' and not in_quotes:
+            elif char == ")" and not in_quotes:
                 paren_depth -= 1
                 current_arg += char
-            elif char == ',' and not in_quotes and paren_depth == 0:
+            elif char == "," and not in_quotes and paren_depth == 0:
                 args.append(self._parse_single_arg(current_arg.strip()))
                 current_arg = ""
             else:
                 current_arg += char
-        
+
         # Don't forget the last argument
         if current_arg:
             args.append(self._parse_single_arg(current_arg.strip()))
-        
+
         return args
-    
+
     def _parse_single_arg(self, arg: str) -> Any:
         """Parse a single argument value."""
         # Remove quotes if present
         if (arg.startswith('"') and arg.endswith('"')) or (arg.startswith("'") and arg.endswith("'")):
             return arg[1:-1]
-        
+
         # Try to parse as number
         try:
-            if '.' in arg:
+            if "." in arg:
                 return float(arg)
             else:
                 return int(arg)

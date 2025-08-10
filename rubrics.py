@@ -1,7 +1,5 @@
 """Rubrics for MCP HUD Gym environment."""
 
-from collections.abc import Callable
-
 from verifiers import Rubric
 from verifiers.parsers.xml_parser import XMLParser
 
@@ -53,4 +51,3 @@ class HUDBaseRubric(Rubric):
             return 0.0
 
         return tool_successes / tool_attempts
-

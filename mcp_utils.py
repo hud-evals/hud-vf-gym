@@ -11,35 +11,35 @@ logger = logging.getLogger(__name__)
 
 def apply_transform(value: Any, transform_str: str, context: dict[str, Any] | None = None) -> Any:
     """Apply a transform defined as a lambda string.
-    
+
     Args:
         value: The value to transform
         transform_str: Lambda string like "lambda x: x.split('+')"
         context: Optional context dict for transforms that need other arguments
-    
+
     Returns:
         Transformed value
     """
     if not transform_str:
         return value
-    
+
     # Create safe eval context with common functions
     safe_dict = {
-        'int': int,
-        'float': float,
-        'str': str,
-        'len': len,
-        'abs': abs,
-        'min': min,
-        'max': max,
+        "int": int,
+        "float": float,
+        "str": str,
+        "len": len,
+        "abs": abs,
+        "min": min,
+        "max": max,
         # Add other safe functions as needed
     }
-    
+
     try:
         # Evaluate the lambda with safe functions available
         # The lambda can use functions from safe_dict
         transform_func = eval(transform_str, {"__builtins__": {}, **safe_dict}, {})
-        
+
         # Check if transform expects context
         if context is not None and "ctx" in transform_str:
             return transform_func(value, context)
@@ -83,7 +83,7 @@ def create_action_args(
                         arg_value = apply_transform(arg_value, value["transform"], action_args)
                     else:
                         arg_value = apply_transform(arg_value, value["transform"])
-                
+
                 mcp_args[key] = arg_value
             elif "from_args" in value:
                 # Build list from multiple args
@@ -128,7 +128,7 @@ async def execute_tool(
     if not mcp_client:
         logger.error("MCP client not initialized")
         return error_response("MCP client not initialized")
-    
+
     # Convert MCPToolCall to dict if needed
     if isinstance(tool_call, MCPToolCall):
         tool_call = tool_call.model_dump()
@@ -140,7 +140,7 @@ async def execute_tool(
 
     try:
         # Check if client is initialized
-        if hasattr(mcp_client, 'is_connected') and not mcp_client.is_connected:
+        if hasattr(mcp_client, "is_connected") and not mcp_client.is_connected:
             logger.warning("MCP client not connected, attempting to initialize...")
             await mcp_client.initialize()
 
@@ -156,16 +156,16 @@ async def execute_tool(
             logger.debug(f"Mapping action '{tool_name}' using action_mappings")
             action_name = tool_name
             mapping = action_mappings[action_name]
-            
+
             # Get the MCP tool to use from _tool field (required)
             assert "_tool" in mapping, f"Action '{action_name}' missing '_tool' field in config"
             tool_name = mapping["_tool"]
-            
+
             # Create the arguments for the MCP tool
             mcp_args = create_action_args(action_name, tool_args, action_mappings)
             if mcp_args is None:
                 return error_response(f"Failed to map action '{action_name}'")
-            
+
             tool_args = mcp_args
             logger.debug(f"Mapped to MCP tool '{tool_name}' with args: {tool_args}")
         else:

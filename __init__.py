@@ -1,6 +1,7 @@
 """MCP-based HUD Gym environment for verifiers."""
 
 import json
+
 from datasets import Dataset, load_dataset
 
 from .hud_vf_gym import HUDGym
@@ -31,19 +32,36 @@ def load_environment(
 
     if num_tasks is not None:
         hf_dataset = hf_dataset.select(range(num_tasks))
-    
+
     # Create dataset for verifiers
     dataset = Dataset.from_dict(
         {
             "question": hf_dataset["prompt"],
             "task": [hf_dataset[i].get("id", f"task_{i}") for i in range(len(hf_dataset))],
-            "answer": [hf_dataset[i].get("metadata", {}).get("answer", "") if isinstance(hf_dataset[i].get("metadata"), dict) else "" for i in range(len(hf_dataset))],
+            "answer": [
+                hf_dataset[i].get("metadata", {}).get("answer", "")
+                if isinstance(hf_dataset[i].get("metadata"), dict)
+                else ""
+                for i in range(len(hf_dataset))
+            ],
             "info": [
                 {
-                    "mcp_config": hf_dataset[i]["mcp_config"] if isinstance(hf_dataset[i]["mcp_config"], str) else json.dumps(hf_dataset[i]["mcp_config"]),
-                    "setup_tool": hf_dataset[i].get("setup_tool") if isinstance(hf_dataset[i].get("setup_tool"), str) else json.dumps(hf_dataset[i].get("setup_tool")) if hf_dataset[i].get("setup_tool") else None,
-                    "evaluate_tool": hf_dataset[i].get("evaluate_tool") if isinstance(hf_dataset[i].get("evaluate_tool"), str) else json.dumps(hf_dataset[i].get("evaluate_tool")) if hf_dataset[i].get("evaluate_tool") else None,
-                    "metadata": hf_dataset[i].get("metadata") if isinstance(hf_dataset[i].get("metadata"), str) else json.dumps(hf_dataset[i].get("metadata", {})),
+                    "mcp_config": hf_dataset[i]["mcp_config"]
+                    if isinstance(hf_dataset[i]["mcp_config"], str)
+                    else json.dumps(hf_dataset[i]["mcp_config"]),
+                    "setup_tool": hf_dataset[i].get("setup_tool")
+                    if isinstance(hf_dataset[i].get("setup_tool"), str)
+                    else json.dumps(hf_dataset[i].get("setup_tool"))
+                    if hf_dataset[i].get("setup_tool")
+                    else None,
+                    "evaluate_tool": hf_dataset[i].get("evaluate_tool")
+                    if isinstance(hf_dataset[i].get("evaluate_tool"), str)
+                    else json.dumps(hf_dataset[i].get("evaluate_tool"))
+                    if hf_dataset[i].get("evaluate_tool")
+                    else None,
+                    "metadata": hf_dataset[i].get("metadata")
+                    if isinstance(hf_dataset[i].get("metadata"), str)
+                    else json.dumps(hf_dataset[i].get("metadata", {})),
                 }
                 for i in range(len(hf_dataset))
             ],

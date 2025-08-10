@@ -1,9 +1,7 @@
 """HUD Gym environment using XML format for tool calls with MCP backend."""
 
 import json
-import logging
 from copy import deepcopy
-from pathlib import Path
 
 import hud
 import verifiers as vf
@@ -19,6 +17,7 @@ from verifiers.parsers.xml_parser import XMLParser
 from .mcp_utils import execute_tool
 from .parsers import ToolXMLParser
 from .rubrics import HUDBaseRubric
+
 
 class HUDGym(vf.MultiTurnEnv):
     """HUD environment using XML format for tool calls with MCP backend."""
@@ -156,15 +155,15 @@ class HUDGym(vf.MultiTurnEnv):
 
         # Extract HUD-specific data from info dict (all stored as JSON strings)
         task_info = info or {}
-        
+
         # Create TaskConfig to resolve env vars in mcp_config (only it has ${ENV_VAR} templates)
         task_config = TaskConfig(
             prompt="",
             mcp_config=json.loads(task_info["mcp_config"]),
             setup_tool=json.loads(task_info["setup_tool"]) if task_info.get("setup_tool") else None,
-            evaluate_tool=json.loads(task_info["evaluate_tool"]) if task_info.get("evaluate_tool") else None
+            evaluate_tool=json.loads(task_info["evaluate_tool"]) if task_info.get("evaluate_tool") else None,
         )
-        
+
         mcp_config = task_config.mcp_config
         setup_tool = task_config.setup_tool
         evaluate_tool = task_config.evaluate_tool
@@ -180,10 +179,10 @@ class HUDGym(vf.MultiTurnEnv):
                 self.logger.info("MCP client initialized successfully")
 
                 assert setup_tool, "setup_tool must be provided"
-                
+
                 # Handle both single tool and list of tools
                 setup_tools = setup_tool if isinstance(setup_tool, list) else [setup_tool]
-                
+
                 setup_result = None
                 for tool in setup_tools:
                     self.logger.info(f"Running setup tool: {tool}")
@@ -242,8 +241,8 @@ class HUDGym(vf.MultiTurnEnv):
                         action_dict = state.pop("pending_action")
 
                         tool_result = await execute_tool(
-                            action_dict, 
-                            mcp_client, 
+                            action_dict,
+                            mcp_client,
                             self.config.get("action_mappings"),
                         )
 
@@ -299,10 +298,10 @@ class HUDGym(vf.MultiTurnEnv):
                         break
 
                 assert evaluate_tool, "evaluate_tool must be provided in task info"
-                
+
                 # Handle both single tool and list of tools
                 evaluate_tools = evaluate_tool if isinstance(evaluate_tool, list) else [evaluate_tool]
-                
+
                 eval_result = None
                 for tool in evaluate_tools:
                     self.logger.info(f"Running evaluate tool: {tool}")
