@@ -38,14 +38,14 @@ class ToolXMLParser(XMLParser):
     def parse(self, text: str, strip: bool = True) -> Any:
         """Parse XML and validate action syntax if tool tag present."""
         result = super().parse(text, strip)
-        
+
         # Check if "think" field exists in parsed result
         if hasattr(result, "think"):
             # Remove think blocks before parsing for tool tags
             text_no_think = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
             tool_parse = super().parse(text_no_think, strip)
             result.tool = tool_parse.tool if hasattr(tool_parse, "tool") else None
-        
+
         # If there's a tool tag, parse and store the action
         if hasattr(result, "tool") and result.tool:
             try:

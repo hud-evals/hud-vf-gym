@@ -32,7 +32,7 @@ def load_environment(
 
     if num_tasks is not None:
         hf_dataset = hf_dataset.select(range(num_tasks))
-    
+
     # Workaround: Duplicate dataset 4x if it has fewer than 4 samples
     # This fixes a GRPO trainer initialization issue with small datasets
     # if len(hf_dataset) < 4:
