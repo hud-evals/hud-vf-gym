@@ -5,8 +5,8 @@ description = "HUD environments for Reinforcement Learning through Verifiers"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "verifiers>=0.1.2",
-    "hud-python>=0.3.5"
+    "verifiers @ git+https://github.com/jdchawla29/verifiers",
+    "hud-python"
 ]
 
 [build-system]
@@ -51,6 +51,4 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
-[tool.uv.sources]
-verifiers = { git = "https://github.com/jdchawla29/verifiers" }
 
