@@ -37,15 +37,20 @@ class ToolXMLParser(XMLParser):
 
     def parse(self, text: str, strip: bool = True) -> Any:
         """Parse XML and validate action syntax if tool tag present."""
-        # First do normal XML parsing
         result = super().parse(text, strip)
-
+        
+        # Check if "think" field exists in parsed result
+        if hasattr(result, "think"):
+            # Remove think blocks before parsing for tool tags
+            text_no_think = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+            tool_parse = super().parse(text_no_think, strip)
+            result.tool = tool_parse.tool if hasattr(tool_parse, "tool") else None
+        
         # If there's a tool tag, parse and store the action
         if hasattr(result, "tool") and result.tool:
             try:
                 result.action = self._parse_action(result.tool)
             except ValueError as e:
-                # Store error info but don't fail the parse
                 result.action = None
                 result.action_error = str(e)
 

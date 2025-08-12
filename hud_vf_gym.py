@@ -35,8 +35,14 @@ class HUDGym(vf.MultiTurnEnv):
         system_prompt = kwargs.pop("system_prompt", self.config["system_prompt"])
 
         parser_config = self.config.get("parser", {})
+
+        if not parser_config["use_thinking"]:
+            fields = ["tool"]
+        else:
+            fields = ["think", "tool"]
+
         self.tool_parser = ToolXMLParser(
-            fields=["think", "tool"],
+            fields=fields,
             action_mappings=self.config.get("action_mappings", {}),
             xml_weight=parser_config.get("xml_weight", 0.6),
             action_weight=parser_config.get("action_weight", 0.4),
@@ -56,8 +62,6 @@ class HUDGym(vf.MultiTurnEnv):
             max_turns=max_turns,
             **kwargs,
         )
-
-        self.logger.setLevel(self.config.get("logging", {}).get("level", "INFO"))
 
     def setup_state(self, state: State, **kwargs) -> State:
         """Setup initial state with tool tracking."""
@@ -99,19 +103,15 @@ class HUDGym(vf.MultiTurnEnv):
 
         # Extract tool from response
         response_text = str(last_message.get("content", ""))
-        if not response_text:
-            return [{"role": "user", "content": "Error: Empty response"}], state
 
         # Parse for tool call
         parsed = self.tool_parser.parse(response_text)
         if not (hasattr(parsed, "tool") and parsed.tool):
-            error_msg = "No tool found in response. You must use a tool to interact. Expected format: <tool>action_name(args)</tool>"
-            return [{"role": "user", "content": f"<result>Error: {error_msg}</result>"}], state
+            return [{"role": "user", "content": "Missing Tool"}], state
 
         # Check if action was successfully parsed
         if not hasattr(parsed, "action") or parsed.action is None:
-            error_msg = getattr(parsed, "action_error", "Invalid action format")
-            return [{"role": "user", "content": f"<result>Error: {error_msg}</result>"}], state
+            return [{"role": "user", "content": "Invalid Format"}], state
 
         # Track tool attempt
         state["tool_attempts"] = state.get("tool_attempts", 0) + 1
@@ -190,12 +190,11 @@ class HUDGym(vf.MultiTurnEnv):
                     if not setup_result["success"]:
                         raise RuntimeError(f"Setup tool failed: {setup_result['text']}")
 
-                # Add setup result as first user message if it has content
+                # Add setup result to the conversation
                 if setup_result and setup_result.get("text"):
                     setup_message: ChatMessage = {"role": "user", "content": setup_result["text"]}
                     rollout.append(setup_message)
                     completion.append(setup_message)
-                    self.logger.debug(f"Added setup message to rollout: {setup_result['text'][:100]}...")
 
                 turn = 0
                 while not is_completed and turn < self.max_turns:
@@ -217,13 +216,6 @@ class HUDGym(vf.MultiTurnEnv):
                     response_text = response.choices[0].message.content
                     if not response_text:
                         raise ValueError("Model returned empty response")
-
-                    # Log assistant response
-                    self.logger.debug(
-                        f"Assistant: {response_text[:200]}..."
-                        if len(response_text) > 200
-                        else f"Assistant: {response_text}"
-                    )
 
                     response_message: ChatMessage = {"role": "assistant", "content": response_text}
                     rollout.append(response_message)
@@ -252,39 +244,30 @@ class HUDGym(vf.MultiTurnEnv):
                         if tool_result["success"]:
                             state["tool_successes"] = state.get("tool_successes", 0) + 1
 
-                        if result_image:
-                            tool_result_message: ChatMessage = {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": self.result_parser.format(result=result_text)},
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {"url": f"data:image/png;base64,{result_image}"},
-                                    },
-                                ],
-                            }
+                            if result_image:
+                                tool_result_message: ChatMessage = {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": self.result_parser.format(result=result_text)},
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {"url": f"data:image/png;base64,{result_image}"},
+                                        },
+                                    ],
+                                }
+                            else:
+                                tool_result_message: ChatMessage = {
+                                    "role": "user",
+                                    "content": self.result_parser.format(result=result_text),
+                                }
                         else:
                             tool_result_message: ChatMessage = {
                                 "role": "user",
-                                "content": self.result_parser.format(result=result_text),
+                                "content": "Invalid Tool Call",
                             }
 
                         rollout.append(tool_result_message)
                         completion.append(tool_result_message)
-
-                        # Log tool result
-                        if isinstance(tool_result_message["content"], list):
-                            self.logger.debug(
-                                f"Tool result: {result_text[:100]}... [+ image]"
-                                if len(result_text) > 100
-                                else f"Tool result: {result_text} [+ image]"
-                            )
-                        else:
-                            # Text-only message
-                            content = str(tool_result_message["content"])
-                            self.logger.debug(
-                                f"Tool result: {content[:100]}..." if len(content) > 100 else f"Tool result: {content}"
-                            )
 
                         # Check if task is complete
                         if action_dict.get("name") == "done":
