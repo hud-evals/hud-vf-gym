@@ -107,11 +107,11 @@ class HUDGym(vf.MultiTurnEnv):
         # Parse for tool call
         parsed = self.tool_parser.parse(response_text)
         if not (hasattr(parsed, "tool") and parsed.tool):
-            return [{"role": "user", "content": "Missing Tool"}], state
+            return [{"role": "user", "content": "Missing Tool Call"}], state
 
         # Check if action was successfully parsed
         if not hasattr(parsed, "action") or parsed.action is None:
-            return [{"role": "user", "content": "Invalid Format"}], state
+            return [{"role": "user", "content": "Invalid Tool Call Format"}], state
 
         # Track tool attempt
         state["tool_attempts"] = state.get("tool_attempts", 0) + 1
