@@ -173,7 +173,7 @@ async def execute_tool(
             logger.debug(f"Direct MCP tool call: '{tool_name}' with args: {tool_args}")
 
         # Execute
-        result = await mcp_client.call_tool(tool_name, tool_args)
+        result = await mcp_client.call_tool(name=tool_name, arguments=tool_args)
 
         # Handle errors
         if result.isError:

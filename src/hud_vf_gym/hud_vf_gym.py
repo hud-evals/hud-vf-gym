@@ -7,8 +7,8 @@ import hud
 import verifiers as vf
 import yaml
 from datasets import Dataset
-from hud.client import MCPClient
-from hud.datasets import TaskConfig
+from hud.clients import MCPClient
+from hud.datasets import Task
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from verifiers import ChatMessage, Info, Messages, SamplingArgs, State
@@ -33,6 +33,18 @@ class HUDGym(vf.MultiTurnEnv):
 
         max_turns = kwargs.pop("max_turns", self.config["defaults"]["max_turns"])
         system_prompt = kwargs.pop("system_prompt", self.config["system_prompt"])
+
+        # Handle job creation from config
+        job_config = self.config.get("job", {})
+
+        # Create the job from config
+        self.job = hud.create_job(
+            name=job_config.get("name", "HUDGym Run"),
+            metadata=job_config.get("metadata", {}),
+            dataset_link=job_config.get("dataset_link"),
+        )
+        self.job.update_status_sync("running")
+        self.job_id = self.job.id
 
         parser_config = self.config.get("parser", {})
 
@@ -156,8 +168,8 @@ class HUDGym(vf.MultiTurnEnv):
         # Extract HUD-specific data from info dict (all stored as JSON strings)
         task_info = info or {}
 
-        # Create TaskConfig to resolve env vars in mcp_config (only it has ${ENV_VAR} templates)
-        task_config = TaskConfig(
+        # Create Task to resolve env vars in mcp_config (only it has ${ENV_VAR} templates)
+        task_config = Task(
             prompt="",
             mcp_config=json.loads(task_info["mcp_config"]),
             setup_tool=json.loads(task_info["setup_tool"]) if task_info.get("setup_tool") else None,
@@ -171,7 +183,7 @@ class HUDGym(vf.MultiTurnEnv):
         mcp_client = None
 
         try:
-            with hud.trace(f"rollout_{task}"):
+            with hud.trace(f"rollout_{task}", job_id=self.job_id):
                 assert mcp_config, "mcp_config must be provided"
                 mcp_client = MCPClient(mcp_config=mcp_config)
                 self.logger.info(f"Initializing MCP client with config: {mcp_config}")
@@ -343,6 +355,15 @@ class HUDGym(vf.MultiTurnEnv):
         finally:
             if mcp_client:
                 try:
-                    await mcp_client.close()
+                    await mcp_client.shutdown()
                 except Exception as e:
                     self.logger.error(f"Error during MCP cleanup: {e}")
+
+    def __del__(self):
+        """Cleanup method to update job status when HUDGym is destroyed."""
+        if hasattr(self, "job") and self.job:
+            try:
+                self.job.update_status_sync("completed")
+            except Exception:
+                # Silently fail since we're in __del__
+                pass
