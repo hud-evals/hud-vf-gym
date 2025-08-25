@@ -3,10 +3,10 @@ name = "hud-vf-gym"
 version = "0.1.0"
 description = "HUD environments for Reinforcement Learning through Verifiers"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.12"
 dependencies = [
-    "verifiers @ git+https://github.com/jdchawla29/verifiers",
-    "hud-python"
+    "verifiers",
+    "hud-python[agent]"
 ]
 
 [build-system]
@@ -19,11 +19,8 @@ dev = [
     "ruff>=0.12.5",
 ]
 
-[tool.hatch.build]
-include = ["hud_vf_gym/"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
+[tool.hatch.build.targets.wheel]
+packages = ["src/hud_vf_gym"]
 
 [tool.ruff]
 target-version = "py311"
