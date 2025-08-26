@@ -75,10 +75,10 @@ class HUDGym(vf.MultiTurnEnv):
             **kwargs,
         )
 
-    def setup_state(self, state: State, **kwargs) -> State:
+    async def setup_state(self, state: State, **kwargs) -> State:
         """Setup initial state with tool tracking."""
 
-        state = super().setup_state(state, **kwargs)
+        state = await super().setup_state(state, **kwargs)
 
         state["error"] = None
         state["error_step"] = None
@@ -159,7 +159,7 @@ class HUDGym(vf.MultiTurnEnv):
             "responses": [],
             "turn": 0,
         }
-        state = self.setup_state(state, **kwargs)
+        state = await self.setup_state(state, **kwargs)
 
         assert isinstance(prompt, list)
         completion: list[ChatMessage] = []
