@@ -3,7 +3,7 @@
 Verifiers Adapter for HUD environments - bridges [Verifiers](https://github.com/willccbb/verifiers) RL framework with [HUD's MCP infrastructure](https://github.com/hud-evals/hud-pytho) for training and evaluating agents.
 
 ### Training Support
-Verifiers' GRPOTrainer does not support multimodal training as of now, you can use an [experimental trainer]https://github.com/jdchawla29/verifiers) for single-turn environments (with single prompt image due to [transformer's limitations](https://github.com/huggingface/transformers/pull/36682)). Multi-turn multimodal support is WIP.
+Verifiers' GRPOTrainer does not support multimodal training as of now, you can use an [experimental trainer](https://github.com/jdchawla29/verifiers) for single-turn environments (with single prompt image due to [transformer's limitations](https://github.com/huggingface/transformers/pull/36682)). Multi-turn multimodal support is WIP.
 
 ## Prerequisites
 
