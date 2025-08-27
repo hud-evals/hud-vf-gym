@@ -1,6 +1,7 @@
 """HUD Gym environment using XML format for tool calls with MCP backend."""
 
 import json
+import os
 from copy import deepcopy
 
 import hud
@@ -36,6 +37,9 @@ class HUDGym(vf.MultiTurnEnv):
 
         # Handle job creation from config
         job_config = self.config.get("job", {})
+
+        # Check if HUD_API_KEY is provided
+        assert os.getenv("HUD_API_KEY"), "HUD_API_KEY environment variable must be set"
 
         # Create the job from config
         self.job = hud.create_job(
@@ -87,6 +91,15 @@ class HUDGym(vf.MultiTurnEnv):
         state["tool_errors"] = []
 
         return state
+
+    @hud.instrument(
+        span_type="agent",
+        record_args=False,
+        record_result=True,
+    )
+    async def get_model_response(self, **kwargs):
+        """Override get_model_response with HUD instrumentation to capture model responses."""
+        return await super().get_model_response(**kwargs)
 
     def is_completed(self, messages: Messages, state: State, **kwargs) -> bool:
         """Check if the task is completed."""
@@ -202,11 +215,14 @@ class HUDGym(vf.MultiTurnEnv):
                     if not setup_result["success"]:
                         raise RuntimeError(f"Setup tool failed: {setup_result['text']}")
 
-                # Add setup result to the conversation
+                # Add setup result to the last user message in the prompt
                 if setup_result and setup_result.get("text"):
-                    setup_message: ChatMessage = {"role": "user", "content": setup_result["text"]}
-                    rollout.append(setup_message)
-                    completion.append(setup_message)
+                    for i in range(len(rollout) - 1, -1, -1):
+                        if rollout[i].get("role") == "user":
+                            rollout[i]["content"] = f"{rollout[i]['content']}\n\n{setup_result['text']}"
+                            # Also update the state prompt to match
+                            state["prompt"][i]["content"] = rollout[i]["content"]
+                            break
 
                 turn = 0
                 while not is_completed and turn < self.max_turns:
@@ -260,7 +276,7 @@ class HUDGym(vf.MultiTurnEnv):
                                 tool_result_message: ChatMessage = {
                                     "role": "user",
                                     "content": [
-                                        {"type": "text", "text": self.result_parser.format(result=result_text)},
+                                        # {"type": "text", "text": self.result_parser.format(result=result_text)}, #TODO: should this be configuarable?
                                         {
                                             "type": "image_url",
                                             "image_url": {"url": f"data:image/png;base64,{result_image}"},
