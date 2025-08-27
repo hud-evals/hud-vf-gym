@@ -1,6 +1,7 @@
 """HUD Gym environment using XML format for tool calls with MCP backend."""
 
 import json
+import os
 from copy import deepcopy
 
 import hud
@@ -36,6 +37,9 @@ class HUDGym(vf.MultiTurnEnv):
 
         # Handle job creation from config
         job_config = self.config.get("job", {})
+
+        # Check if HUD_API_KEY is provided
+        assert os.getenv("HUD_API_KEY"), "HUD_API_KEY environment variable must be set"
 
         # Create the job from config
         self.job = hud.create_job(
@@ -87,6 +91,15 @@ class HUDGym(vf.MultiTurnEnv):
         state["tool_errors"] = []
 
         return state
+
+    @hud.instrument(
+        span_type="agent",
+        record_args=False,
+        record_result=True,
+    )
+    async def get_model_response(self, **kwargs):
+        """Override get_model_response with HUD instrumentation to capture model responses."""
+        return await super().get_model_response(**kwargs)
 
     def is_completed(self, messages: Messages, state: State, **kwargs) -> bool:
         """Check if the task is completed."""

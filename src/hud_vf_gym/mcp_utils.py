@@ -136,7 +136,7 @@ async def execute_tool(
     # Handle 'done' action early
     if isinstance(tool_call, dict) and tool_call.get("name") == "done":
         logger.info("Done action called - task completed")
-        return success_response("Task completed")
+        return success_response("Agent is done, Evaluating...")
 
     try:
         # Check if client is initialized
