@@ -1,6 +1,6 @@
 [project]
 name = "hud-vf-gym"
-version = "0.1.0"
+version = "0.1.1"
 description = "HUD environments for Reinforcement Learning through Verifiers"
 readme = "README.md"
 requires-python = ">=3.12"
