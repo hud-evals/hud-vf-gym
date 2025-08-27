@@ -215,11 +215,14 @@ class HUDGym(vf.MultiTurnEnv):
                     if not setup_result["success"]:
                         raise RuntimeError(f"Setup tool failed: {setup_result['text']}")
 
-                # Add setup result to the conversation
+                # Add setup result to the last user message in the prompt
                 if setup_result and setup_result.get("text"):
-                    setup_message: ChatMessage = {"role": "user", "content": setup_result["text"]}
-                    rollout.append(setup_message)
-                    completion.append(setup_message)
+                    for i in range(len(rollout) - 1, -1, -1):
+                        if rollout[i].get("role") == "user":
+                            rollout[i]["content"] = f"{rollout[i]['content']}\n\n{setup_result['text']}"
+                            # Also update the state prompt to match
+                            state["prompt"][i]["content"] = rollout[i]["content"]
+                            break
 
                 turn = 0
                 while not is_completed and turn < self.max_turns:
@@ -273,7 +276,7 @@ class HUDGym(vf.MultiTurnEnv):
                                 tool_result_message: ChatMessage = {
                                     "role": "user",
                                     "content": [
-                                        {"type": "text", "text": self.result_parser.format(result=result_text)},
+                                        # {"type": "text", "text": self.result_parser.format(result=result_text)}, #TODO: should this be configuarable?
                                         {
                                             "type": "image_url",
                                             "image_url": {"url": f"data:image/png;base64,{result_image}"},
