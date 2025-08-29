@@ -1,27 +1,24 @@
-"""HUD Gym environment using XML format for tool calls with MCP backend."""
+"""HUD Gym environment using native OpenAI tool calling."""
 
 import json
 import os
-from copy import deepcopy
 
 import hud
 import verifiers as vf
 import yaml
 from datasets import Dataset
+from hud.agents import GenericOpenAIChatAgent
 from hud.clients import MCPClient
 from hud.datasets import Task
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletion
-from verifiers import ChatMessage, Info, Messages, SamplingArgs, State
-from verifiers.parsers.xml_parser import XMLParser
+from verifiers import Info, Messages, SamplingArgs, State
 
-from .mcp_utils import execute_tool
-from .parsers import ToolXMLParser
 from .rubrics import HUDBaseRubric
 
+import logging; logging.getLogger("verifiers").setLevel(logging.DEBUG)
 
 class HUDGym(vf.MultiTurnEnv):
-    """HUD environment using XML format for tool calls with MCP backend."""
+    """HUD environment using native OpenAI tool calling."""
 
     def __init__(
         self,
@@ -50,29 +47,12 @@ class HUDGym(vf.MultiTurnEnv):
         self.job.update_status_sync("running")
         self.job_id = self.job.id
 
-        parser_config = self.config.get("parser", {})
-
-        if not parser_config["use_thinking"]:
-            fields = ["tool"]
-        else:
-            fields = ["think", "tool"]
-
-        self.tool_parser = ToolXMLParser(
-            fields=fields,
-            action_mappings=self.config.get("action_mappings", {}),
-            xml_weight=parser_config.get("xml_weight", 0.6),
-            action_weight=parser_config.get("action_weight", 0.4),
-        )
-        self.result_parser = XMLParser(fields=["result"])
-
-        rubric_config = self.config.get("rubric", {})
-        rubric_weights = rubric_config.get("weights", None)
-
-        rubric = HUDBaseRubric(parser=self.tool_parser, weights=rubric_weights)
+        # Create rubric for scoring
+        rubric = HUDBaseRubric()
 
         super().__init__(
             dataset=dataset,
-            parser=self.tool_parser,
+            parser=None,
             rubric=rubric,
             system_prompt=system_prompt,
             max_turns=max_turns,
@@ -80,71 +60,24 @@ class HUDGym(vf.MultiTurnEnv):
         )
 
     async def setup_state(self, state: State, **kwargs) -> State:
-        """Setup initial state with tool tracking."""
-
+        """Setup initial state."""
         state = await super().setup_state(state, **kwargs)
-
+        
         state["error"] = None
         state["error_step"] = None
-        state["tool_attempts"] = 0
-        state["tool_successes"] = 0
-        state["tool_errors"] = []
-
+        state["trace"] = None
+        
         return state
 
-    @hud.instrument(
-        span_type="agent",
-        record_args=False,
-        record_result=True,
-    )
-    async def get_model_response(self, **kwargs):
-        """Override get_model_response with HUD instrumentation to capture model responses."""
-        return await super().get_model_response(**kwargs)
-
-    def is_completed(self, messages: Messages, state: State, **kwargs) -> bool:
+    async def is_completed(self, messages: Messages, state: State, **kwargs) -> bool:
         """Check if the task is completed."""
-        # Check if done tool was called in the last assistant message
-        if isinstance(messages, list) and messages:
-            for msg in reversed(messages):
-                if msg.get("role") == "assistant":
-                    try:
-                        parsed = self.tool_parser.parse(str(msg.get("content", "")))
-                        if hasattr(parsed, "action") and parsed.action:
-                            if parsed.action.get("name") == "done":
-                                return True
-                    except (ValueError, AttributeError):
-                        pass
-                    break
-
-        # Also check if we've hit max turns
+        # With the agent approach, we rely on the trace to determine completion
+        if state.get("trace"):
+            return state["trace"].done
         return False
 
-    def env_response(self, messages: Messages, state: State, **kwargs) -> tuple[Messages, State]:
-        """Generate environment response based on the last model action."""
-        # Get the last assistant message
-        assert isinstance(messages, list)
-        last_message = messages[-1]
-        assert last_message["role"] == "assistant"
-
-        # Extract tool from response
-        response_text = str(last_message.get("content", ""))
-
-        # Parse for tool call
-        parsed = self.tool_parser.parse(response_text)
-        if not (hasattr(parsed, "tool") and parsed.tool):
-            return [{"role": "user", "content": "Missing Tool Call"}], state
-
-        # Check if action was successfully parsed
-        if not hasattr(parsed, "action") or parsed.action is None:
-            return [{"role": "user", "content": "Invalid Tool Call Format"}], state
-
-        # Track tool attempt
-        state["tool_attempts"] = state.get("tool_attempts", 0) + 1
-
-        # Store the action for async execution in rollout
-        state["pending_action"] = parsed.action
-
-        # Return empty to continue - action will be executed in rollout
+    async def env_response(self, messages: Messages, state: State, **kwargs) -> tuple[Messages, State]:
+        """Generate environment response."""
         return [], state
 
     async def rollout(
@@ -158,11 +91,10 @@ class HUDGym(vf.MultiTurnEnv):
         sampling_args: SamplingArgs | None = None,
         **kwargs,
     ) -> tuple[Messages, State]:
-        """Generate a multi-turn rollout with MCP backend."""
-
+        """Generate a rollout using GenericOpenAIChatAgent."""
+        
         self.logger.info(f"Starting rollout for task: {task}")
-
-        is_completed = False
+        
         state: State = {
             "prompt": prompt,
             "completion": [],
@@ -173,207 +105,223 @@ class HUDGym(vf.MultiTurnEnv):
             "turn": 0,
         }
         state = await self.setup_state(state, **kwargs)
-
-        assert isinstance(prompt, list)
-        completion: list[ChatMessage] = []
-        rollout = deepcopy(prompt)
-
-        # Extract HUD-specific data from info dict (all stored as JSON strings)
+        
+        # Extract HUD-specific data from info dict
         task_info = info or {}
-
-        # Create Task to resolve env vars in mcp_config (only it has ${ENV_VAR} templates)
-        task_config = Task(
-            prompt="",
+        
+        # Create Task object
+        prompt_text = ""
+        if prompt and isinstance(prompt, list):
+            for msg in reversed(prompt):
+                if msg.get("role") == "user":
+                    content = msg.get("content", "")
+                    if isinstance(content, str):
+                        prompt_text = content
+                    break
+        
+        hud_task = Task(
+            prompt=prompt_text,
             mcp_config=json.loads(task_info["mcp_config"]),
             setup_tool=json.loads(task_info["setup_tool"]) if task_info.get("setup_tool") else None,
             evaluate_tool=json.loads(task_info["evaluate_tool"]) if task_info.get("evaluate_tool") else None,
+            system_prompt=self.system_prompt,
         )
-
-        mcp_config = task_config.mcp_config
-        setup_tool = task_config.setup_tool
-        evaluate_tool = task_config.evaluate_tool
-
+        
         mcp_client = None
 
         try:
             with hud.trace(f"rollout_{task}", job_id=self.job_id):
-                assert mcp_config, "mcp_config must be provided"
-                mcp_client = MCPClient(mcp_config=mcp_config)
-                self.logger.info(f"Initializing MCP client with config: {mcp_config}")
-                await mcp_client.initialize()
-                self.logger.info("MCP client initialized successfully")
-
-                assert setup_tool, "setup_tool must be provided"
-
-                # Handle both single tool and list of tools
-                setup_tools = setup_tool if isinstance(setup_tool, list) else [setup_tool]
-
-                setup_result = None
-                for tool in setup_tools:
-                    self.logger.info(f"Running setup tool: {tool}")
-                    setup_result = await execute_tool(tool, mcp_client)
-                    if not setup_result["success"]:
-                        raise RuntimeError(f"Setup tool failed: {setup_result['text']}")
-
-                # Add setup result to the last user message in the prompt
-                if setup_result and setup_result.get("text"):
-                    for i in range(len(rollout) - 1, -1, -1):
-                        if rollout[i].get("role") == "user":
-                            rollout[i]["content"] = f"{rollout[i]['content']}\n\n{setup_result['text']}"
-                            # Also update the state prompt to match
-                            state["prompt"][i]["content"] = rollout[i]["content"]
-                            break
-
-                turn = 0
-                while not is_completed and turn < self.max_turns:
-                    state["turn"] = turn
-
-                    # Get model response
-                    response = await self.get_model_response(
-                        prompt=rollout,
-                        client=client,
-                        model=model,
-                        oai_tools=info.get("oai_tools", None) if info else None,
-                        sampling_args=sampling_args or {},
-                        message_type="chat",
-                        images=kwargs.get("images"),
-                    )
-                    state["responses"].append(response)
-
-                    assert isinstance(response, ChatCompletion)
-                    response_text = response.choices[0].message.content
-                    if not response_text:
-                        raise ValueError("Model returned empty response")
-
-                    response_message: ChatMessage = {"role": "assistant", "content": response_text}
-                    rollout.append(response_message)
-                    completion.append(response_message)
-
-                    env_messages, state = self.env_response(rollout, state)
-
-                    if env_messages and "pending_action" not in state:
-                        assert isinstance(env_messages, list)
-                        for msg in env_messages:
-                            rollout.append(msg)
-                            completion.append(msg)
-
-                    elif "pending_action" in state:
-                        action_dict = state.pop("pending_action")
-
-                        tool_result = await execute_tool(
-                            action_dict,
-                            mcp_client,
-                            self.config.get("action_mappings"),
-                        )
-
-                        result_text = tool_result["text"]
-                        result_image = tool_result.get("image")
-
-                        if tool_result["success"]:
-                            state["tool_successes"] = state.get("tool_successes", 0) + 1
-
-                            if result_image:
-                                tool_result_message: ChatMessage = {
-                                    "role": "user",
-                                    "content": [
-                                        # {"type": "text", "text": self.result_parser.format(result=result_text)}, #TODO: should this be configuarable?
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {"url": f"data:image/png;base64,{result_image}"},
-                                        },
-                                    ],
-                                }
-                            else:
-                                tool_result_message: ChatMessage = {
-                                    "role": "user",
-                                    "content": self.result_parser.format(result=result_text),
-                                }
-                        else:
-                            tool_result_message: ChatMessage = {
+                # Create MCP client
+                mcp_client = MCPClient(mcp_config=hud_task.mcp_config)
+                
+                # Create the agent
+                agent = GenericOpenAIChatAgent(
+                    mcp_client=mcp_client,
+                    openai_client=client,
+                    model_name=model,
+                    parallel_tool_calls=False,
+                    system_prompt=self.system_prompt,
+                    append_setup_output=True,
+                )
+                agent.metadata = {}
+                
+                # MANUAL LIFECYCLE IMPLEMENTATION
+                # Phase 1: Initialize agent with task context
+                self.logger.info("Initializing agent...")
+                await agent.initialize(hud_task)
+                
+                # Phase 2: Run setup tool if present
+                setup_content = []
+                if hud_task.setup_tool:
+                    self.logger.info(f"Running setup tool: {hud_task.setup_tool}")
+                    setup_results = await agent.call_tools(hud_task.setup_tool)
+                    
+                    # Check for errors
+                    if any(result.isError for result in setup_results):
+                        raise RuntimeError(f"Setup failed: {setup_results}")
+                    
+                    # Extract setup content if append_setup_output is True
+                    if agent.append_setup_output and setup_results:
+                        if isinstance(setup_results[0].content, list):
+                            setup_content.extend(setup_results[0].content)
+                        elif setup_results[0].content:
+                            setup_content.append(setup_results[0].content)
+                    
+                    self.logger.info("Setup complete")
+                
+                # Phase 3: Build initial context and messages
+                self.logger.info(f"Running task: {hud_task.prompt}")
+                
+                # Get system messages from agent
+                messages = await agent.get_system_messages()
+                
+                # Build context with setup output and prompt
+                from hud.agents.base import text_to_blocks
+                context_blocks = []
+                
+                # Add setup content
+                if setup_content:
+                    context_blocks.extend(setup_content)
+                
+                # Add task prompt
+                if hud_task.prompt:
+                    context_blocks.extend(text_to_blocks(hud_task.prompt))
+                
+                # Format context into messages
+                context_messages = await agent.format_message(context_blocks)
+                messages.extend(context_messages)
+                
+                # Store conversation history
+                agent.conversation_history = messages.copy()
+                
+                # Phase 4: Run agent execution loop
+                done = False
+                steps = 0
+                trace_content = []
+                
+                while not done and steps < self.max_turns:
+                    self.logger.info(f"Step {steps + 1}/{self.max_turns}")
+                    
+                    # Get model response - this updates messages and conversation_history
+                    response = await agent.get_response(messages)
+                    
+                    if response.content:
+                        self.logger.debug(f"Agent response: {response.content[:200]}...")
+                        trace_content.append(response.content)
+                    
+                    if response.tool_calls:
+                        # Execute tool calls
+                        self.logger.debug(f"Executing {len(response.tool_calls)} tool calls")
+                        tool_results = await agent.call_tools(response.tool_calls)
+                        
+                        # Format tool results back into messages
+                        # This also updates conversation_history internally
+                        tool_messages = await agent.format_tool_results(response.tool_calls, tool_results)
+                        messages.extend(tool_messages)
+                        
+                        # Check for errors in tool results
+                        if any(result.isError for result in tool_results):
+                            self.logger.warning(f"Tool error at step {steps}: {tool_results}")
+                    else:
+                        # No more tool calls, agent is done
+                        done = True
+                        self.logger.info("Agent finished (no more tool calls)")
+                    
+                    steps += 1
+                
+                # Phase 5: Run evaluation if present
+                eval_reward = 0.0
+                eval_content = None
+                if hud_task.evaluate_tool:
+                    self.logger.info(f"Running evaluation tool: {hud_task.evaluate_tool}")
+                    eval_results = await agent.call_tools(hud_task.evaluate_tool)
+                    
+                    if any(result.isError for result in eval_results):
+                        self.logger.error(f"Evaluation failed: {eval_results}")
+                    else:
+                        # Extract reward from evaluation
+                        from hud.agents.base import find_reward, find_content
+                        eval_reward = find_reward(eval_results[0])
+                        eval_content = find_content(eval_results[0])
+                        self.logger.info(f"Evaluation complete - Reward: {eval_reward}")
+                
+                # Create trace object to match expected format
+                from hud.agents.base import Trace
+                trace = Trace(
+                    reward=eval_reward,
+                    done=done,
+                    content=eval_content or "\n".join(trace_content),
+                    isError=False
+                )
+                
+                # Store trace in state for rubric evaluation
+                state["trace"] = trace
+                state["reward"] = trace.reward
+                
+                # Extract conversation from the agent
+                completion = []
+                full_conversation = []
+                
+                if hasattr(agent, 'conversation_history'):
+                    # Process all messages from the conversation
+                    for msg in agent.conversation_history:
+                        if msg.get("role") == "system":
+                            # System messages go to the beginning
+                            full_conversation.insert(0, msg)
+                        elif msg.get("role") == "tool":
+                            # Convert tool messages to user messages for verifiers
+                            formatted_msg = {
                                 "role": "user",
-                                "content": "Invalid Tool Call",
+                                "content": msg.get("content", "") or ""
                             }
-
-                        rollout.append(tool_result_message)
-                        completion.append(tool_result_message)
-
-                        # Check if task is complete
-                        if action_dict.get("name") == "done":
-                            is_completed = True
-                            break
-
-                    turn += 1
-
-                    if turn >= self.max_turns:
-                        self.logger.warning(f"Task {task} reached max_turns ({self.max_turns}) without completion")
-                        break
-
-                assert evaluate_tool, "evaluate_tool must be provided in task info"
-
-                # Handle both single tool and list of tools
-                evaluate_tools = evaluate_tool if isinstance(evaluate_tool, list) else [evaluate_tool]
-
-                eval_result = None
-                for tool in evaluate_tools:
-                    self.logger.info(f"Running evaluate tool: {tool}")
-                    eval_result = await execute_tool(tool, mcp_client)
-                    if not eval_result["success"]:
-                        self.logger.warning(f"Evaluate tool failed: {eval_result['text']}")
-
-                # Handle the evaluation result
-                if eval_result and eval_result["success"]:
-                    # Check if we have structured data with grade or reward
-                    if eval_result["data"] and isinstance(eval_result["data"], dict):
-                        # Check for both "grade" and "reward" fields
-                        if "grade" in eval_result["data"]:
-                            state["reward"] = float(eval_result["data"]["grade"])
-                            self.logger.info(f"Task {task} evaluation grade: {state['reward']:.2f}")
-                        elif "reward" in eval_result["data"]:
-                            state["reward"] = float(eval_result["data"]["reward"])
-                            self.logger.info(f"Task {task} evaluation reward: {state['reward']:.2f}")
+                            full_conversation.append(formatted_msg)
+                            completion.append(formatted_msg)
                         else:
-                            # No grade/reward available, but evaluation succeeded
-                            self.logger.warning(f"Evaluation succeeded but no grade/reward found: {eval_result}")
-                    else:
-                        # No structured data available
-                        self.logger.warning(f"Evaluation succeeded but no structured data: {eval_result}")
-                else:
-                    # Evaluation failed or no result
-                    if eval_result:
-                        self.logger.error(f"Evaluation failed: {eval_result['text']}")
-                    else:
-                        self.logger.error("Evaluation failed: No result returned")
-                    state["reward"] = 0.0
-
-                if is_completed:
-                    self.logger.info(f"Task {task} completed in {turn} turns")
-                else:
-                    self.logger.info(f"Task {task} not completed after {turn} turns")
+                            # Assistant and user messages
+                            formatted_msg = {
+                                "role": msg.get("role"),
+                                "content": msg.get("content", "") or ""
+                            }
+                            # Include tool_calls if present (keep OpenAI objects)
+                            if "tool_calls" in msg:
+                                formatted_msg["tool_calls"] = msg["tool_calls"]
+                            full_conversation.append(formatted_msg)
+                            # Only non-system messages go to completion
+                            if msg.get("role") != "system":
+                                completion.append(formatted_msg)
+                    
+                    self.logger.debug(f"Extracted {len(completion)} completion messages")
+                    
+                    # Update state["prompt"] to include system message
+                    if full_conversation and full_conversation[0].get("role") == "system":
+                        # Replace the prompt with the full conversation including system
+                        state["prompt"] = full_conversation[:2]  # System + first user message
+                        self.logger.debug(f"Updated state['prompt']: {state['prompt']}")
 
                 state["completion"] = completion
-
+                
+                self.logger.info(f"Task {task} completed with reward: {trace.reward}")
+                
                 return completion, state
-
+                
         except Exception as e:
             self.logger.error(f"Error during rollout: {e}")
             state["error"] = str(e)
             state["error_step"] = f"turn_{state.get('turn', 0)}"
-            if "reward" not in state:
-                state["reward"] = 0.0
-
-            self.logger.warning(f"Task {task} failed on turn {state.get('turn', 0) + 1} with error: {e}")
-
-            # Set completion for failed tasks
-            state["completion"] = completion
-
-            return completion, state
-
+            state["reward"] = 0.0
+            
+            self.logger.warning(f"Task {task} failed with error: {e}")
+            
+            return [], state
+        
         finally:
             if mcp_client:
                 try:
                     await mcp_client.shutdown()
+                    self.logger.debug("MCP client shut down successfully")
                 except Exception as e:
-                    self.logger.error(f"Error during MCP cleanup: {e}")
+                    self.logger.warning(f"Error shutting down MCP client: {e}")
+
 
     def __del__(self):
         """Cleanup method to update job status when HUDGym is destroyed."""
