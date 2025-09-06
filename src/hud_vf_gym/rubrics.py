@@ -36,18 +36,18 @@ class HUDBaseRubric(Rubric):
     def tool_execution_reward_func(self, completion: list[dict[str, str]], **kwargs) -> float:
         """
         Reward function that checks tool execution success rate.
-        
+
         Uses trace from GenericOpenAIChatAgent to calculate success rate.
         """
         state = kwargs.get("state", {})
         trace = state.get("trace")
-        
+
         if not trace or not trace.trace:  # trace.trace is the list of steps
             return 0.0
-        
+
         tool_calls = 0
         successful_calls = 0
-        
+
         # Count tool calls and successes from trace
         for step in trace.trace:  # trace.trace contains the steps
             if step.category == "mcp":
@@ -58,9 +58,9 @@ class HUDBaseRubric(Rubric):
                 elif not hasattr(step.result, "isError"):
                     # If no error field, assume success
                     successful_calls += 1
-        
+
         if tool_calls == 0:
             # No tools called, but that might be fine
             return 1.0
-        
+
         return successful_calls / tool_calls

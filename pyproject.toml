@@ -1,6 +1,6 @@
 [project]
 name = "hud-vf-gym"
-version = "0.1.1"
+version = "0.1.2"
 description = "HUD environments for Reinforcement Learning through Verifiers"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -48,4 +48,5 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
-
+[project.scripts]
+hudvf-init = "hud_vf_gym.config_template:main"

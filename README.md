@@ -17,14 +17,21 @@ Verifiers' GRPOTrainer does not support multimodal training as of now, you can u
 
 ## Quick Start
 
+```bash
+# Generate a config template:
+hudvf-init --output ./configs/config.yaml
+```
+
+Update the config file to your liking and use it like any Verifiers Environment.
+
 ```python
 import verifiers as vf
 
 # Load environment with HUD taskset and config
 env = vf.load_environment(
     env_id="hud-vf-gym",
-    taskset="hud-evals/2048-taskset",  # HuggingFace dataset
-    config_path="./configs/2048.yaml",  # Environment config
+    taskset="your-taskset",  # HuggingFace dataset or JSONL file with the HUD tasksets
+    config_path="./configs/config.yaml",  # Environment config
     num_tasks=10
 )
 ```
@@ -39,10 +46,8 @@ The main documentation covers:
 - Training agents with GRPO
 - Creating custom environments and configs
 - Dataset format and creation
-- Action mappings and tool configuration
 - Troubleshooting guide
 
 ## License
 
 MIT
-

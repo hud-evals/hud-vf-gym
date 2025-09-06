@@ -1,6 +1,7 @@
 """MCP-based HUD Gym environment for verifiers."""
 
 import json
+import os
 
 from datasets import Dataset, load_dataset
 
@@ -15,10 +16,10 @@ def load_environment(
     split: str = "train",
     **kwargs,
 ) -> HUDGym:
-    """Load HUDGym environment from a HuggingFace dataset.
+    """Load HUDGym environment from a HuggingFace dataset or JSON file.
 
     Args:
-        taskset: HuggingFace dataset identifier (required)
+        taskset: HuggingFace dataset identifier or local JSON/JSONL path
         config_path: Path to config file (required)
         num_tasks: Optional limit on number of tasks to load
         split: Dataset split to load (default: train)
@@ -27,58 +28,110 @@ def load_environment(
     Returns:
         HUDGym: Configured environment
     """
-    # Load HuggingFace dataset
+    assert config_path is not None, "config_path is required"
+
+    def _normalize_examples(examples: list[dict]) -> Dataset:
+        # Create dataset for verifiers from a list of task dicts
+        prompts = [ex.get("prompt", "") for ex in examples]
+        tasks = [ex.get("id", f"task_{i}") for i, ex in enumerate(examples)]
+        answers = []
+        infos = []
+        for ex in examples:
+            meta = ex.get("metadata", {})
+            # If metadata is a JSON string, load to extract answer if present
+            if isinstance(meta, str):
+                try:
+                    meta_obj = json.loads(meta)
+                except Exception:
+                    meta_obj = {}
+            else:
+                meta_obj = meta if isinstance(meta, dict) else {}
+            answers.append(meta_obj.get("answer", ""))
+            infos.append(
+                {
+                    "mcp_config": ex["mcp_config"]
+                    if isinstance(ex.get("mcp_config"), str)
+                    else json.dumps(ex.get("mcp_config", {})),
+                    "setup_tool": ex.get("setup_tool")
+                    if isinstance(ex.get("setup_tool"), str)
+                    else json.dumps(ex.get("setup_tool"))
+                    if ex.get("setup_tool") is not None
+                    else None,
+                    "evaluate_tool": ex.get("evaluate_tool")
+                    if isinstance(ex.get("evaluate_tool"), str)
+                    else json.dumps(ex.get("evaluate_tool"))
+                    if ex.get("evaluate_tool") is not None
+                    else None,
+                    "metadata": meta if isinstance(meta, str) else json.dumps(meta_obj),
+                }
+            )
+
+        return Dataset.from_dict({"question": prompts, "task": tasks, "answer": answers, "info": infos})
+
+    # If caller provided a local path in taskset, treat it as JSON input
+    if isinstance(taskset, str) and os.path.exists(taskset):
+        # Load from JSON or JSONL file
+        with open(taskset, "r") as f:
+            raw = f.read()
+
+        examples: list[dict]
+        try:
+            loaded = json.loads(raw)
+            if isinstance(loaded, dict) and "data" in loaded and isinstance(loaded["data"], list):
+                examples = loaded["data"]
+            elif isinstance(loaded, list):
+                examples = loaded
+            else:
+                raise ValueError("Unsupported JSON structure; expected list or {data: list}")
+        except json.JSONDecodeError:
+            # Try JSON Lines
+            examples = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict):
+                        examples.append(obj)
+                except Exception:
+                    continue
+
+            if not examples:
+                raise
+
+        if num_tasks is not None:
+            examples = examples[:num_tasks]
+
+        dataset = _normalize_examples(examples)
+        return HUDGym(dataset=dataset, config_path=config_path, **kwargs)
+
+    # Fallback to HuggingFace dataset path
+    assert taskset is not None, "taskset must be a HF dataset ID or a local JSON/JSONL path"
+
     hf_dataset: Dataset = load_dataset(taskset, split=split)  # type: ignore
 
     if num_tasks is not None:
         hf_dataset = hf_dataset.select(range(num_tasks))
 
-    # Workaround: Duplicate dataset 4x if it has fewer than 4 samples
-    # This fixes a GRPO trainer initialization issue with small datasets
-    # if len(hf_dataset) < 4:
-    #     from datasets import concatenate_datasets
-    #     hf_dataset = concatenate_datasets([hf_dataset] * (4 // len(hf_dataset) + 1))
-    #     hf_dataset = hf_dataset.select(range(4))  # Ensure exactly 4 samples minimum
-
-    # Create dataset for verifiers
-    dataset = Dataset.from_dict(
+    examples = [
         {
-            "question": hf_dataset["prompt"],
-            "task": [hf_dataset[i].get("id", f"task_{i}") for i in range(len(hf_dataset))],
-            "answer": [
-                hf_dataset[i].get("metadata", {}).get("answer", "")
-                if isinstance(hf_dataset[i].get("metadata"), dict)
-                else ""
-                for i in range(len(hf_dataset))
-            ],
-            "info": [
-                {
-                    "mcp_config": hf_dataset[i]["mcp_config"]
-                    if isinstance(hf_dataset[i]["mcp_config"], str)
-                    else json.dumps(hf_dataset[i]["mcp_config"]),
-                    "setup_tool": hf_dataset[i].get("setup_tool")
-                    if isinstance(hf_dataset[i].get("setup_tool"), str)
-                    else json.dumps(hf_dataset[i].get("setup_tool"))
-                    if hf_dataset[i].get("setup_tool")
-                    else None,
-                    "evaluate_tool": hf_dataset[i].get("evaluate_tool")
-                    if isinstance(hf_dataset[i].get("evaluate_tool"), str)
-                    else json.dumps(hf_dataset[i].get("evaluate_tool"))
-                    if hf_dataset[i].get("evaluate_tool")
-                    else None,
-                    "metadata": hf_dataset[i].get("metadata")
-                    if isinstance(hf_dataset[i].get("metadata"), str)
-                    else json.dumps(hf_dataset[i].get("metadata", {})),
-                }
-                for i in range(len(hf_dataset))
-            ],
+            "id": hf_dataset[i].get("id", f"task_{i}"),
+            "prompt": hf_dataset[i].get("prompt", ""),
+            "mcp_config": hf_dataset[i].get("mcp_config"),
+            "setup_tool": hf_dataset[i].get("setup_tool"),
+            "evaluate_tool": hf_dataset[i].get("evaluate_tool"),
+            "metadata": hf_dataset[i].get("metadata", {}),
         }
-    )
+        for i in range(len(hf_dataset))
+    ]
+
+    dataset = _normalize_examples(examples)
 
     return HUDGym(dataset=dataset, config_path=config_path, **kwargs)
 
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 
 __all__ = [
     "HUDGym",
