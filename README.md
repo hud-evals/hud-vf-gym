@@ -2,14 +2,6 @@
 
 Verifiers Adapter for HUD environments - bridges [Verifiers](https://github.com/willccbb/verifiers) RL framework with [HUD's MCP infrastructure](https://github.com/hud-evals/hud-python) for training and evaluating agents.
 
-## Features
-
-- 🎮 **Computer Use Environments**: Train and evaluate agents on browser-based tasks
-- 🔧 **MCP Integration**: Leverage Model Context Protocol for tool-based interactions
-- 📊 **Built-in Evaluation**: Automatic scoring with customizable rubrics
-- 🤖 **Multi-model Support**: Works with OpenAI, Anthropic, and open-source models
-- 📈 **RL Training**: Full support for GRPO training via Verifiers
-
 ## Prerequisites
 
 - Python >=3.12
@@ -103,13 +95,6 @@ vf-eval hud-vf-gym \
     --model gpt-4o-mini \
     --env-args '{"taskset": "hud-evals/2048-taskset", "config_path": "configs/2048.yaml"}' \
     --num-tasks 10
-
-# With custom parameters
-vf-eval hud-vf-gym \
-    --model claude-3-5-sonnet-20241022 \
-    --env-args '{"taskset": "data/browser_2048.json", "config_path": "configs/browser_2048.yaml"}' \
-    --num-tasks 5 \
-    --parallel 2
 ```
 
 ### Training with GRPO
@@ -150,20 +135,6 @@ trainer.train()
 
 Verifiers' GRPOTrainer does not support multimodal training as of now. You can use an [experimental trainer](https://github.com/jdchawla29/verifiers) for single-turn environments (with single prompt image due to [transformer's limitations](https://github.com/huggingface/transformers/pull/36682)). Multi-turn multimodal support is WIP.
 
-```python
-# Install experimental version
-# pip install git+https://github.com/jdchawla29/verifiers.git
-
-from verifiers import MultimodalGRPOTrainer
-
-trainer = MultimodalGRPOTrainer(
-    processor=processor,  # Instead of tokenizer
-    environment=env,
-    model_name_or_path="Qwen/Qwen2-VL-2B-Instruct",
-    # ... other parameters
-)
-```
-
 ## Dataset Format
 
 ### HUD Task Format
@@ -200,7 +171,6 @@ The `examples/` directory contains complete working examples:
 
 - `train_2048.py` - Training a model on text-based 2048
 - `eval_browser_2048.py` - Evaluating on browser-based 2048
-- `custom_rubric.py` - Creating custom scoring rubrics
 
 Run examples:
 
@@ -251,21 +221,6 @@ hud-vf-gym/
 └── pyproject.toml        # Package configuration
 ```
 
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Submit a pull request
-
 ## License
 
-MIT - See LICENSE file for details
-
-## Support
-
-- [Documentation](https://github.com/hud-evals/hud-vf-gym)
-- [Issues](https://github.com/hud-evals/hud-vf-gym/issues)
-- [HUD Platform](https://app.hud.so)
+MIT
