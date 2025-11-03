@@ -1,7 +1,6 @@
 """HUD Gym environment using native OpenAI tool calling."""
 
 import json
-import logging
 import os
 
 import hud
@@ -24,12 +23,12 @@ class HUDGym(vf.MultiTurnEnv):
         config_path: str,
         **kwargs,
     ):
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
 
         max_turns = kwargs.pop("max_turns", self.config["defaults"]["max_turns"])
         system_prompt = kwargs.pop("system_prompt", self.config["system_prompt"])
-        allowed_tools = self.config.get("allowed_tools")
+        # optional: allowed_tools may be absent in purely text environments
 
         # Handle job creation from config
         job_config = self.config.get("job", {})
@@ -103,25 +102,29 @@ class HUDGym(vf.MultiTurnEnv):
         client: AsyncOpenAI,
         model: str,
         prompt: Messages,
+        completion: Messages | None = None,
         answer: str = "",
+        state: State | None = None,
         task: str = "default",
         info: Info | None = None,
+        example_id: int = 0,
         sampling_args: SamplingArgs | None = None,
         **kwargs,
     ) -> tuple[Messages, State]:
         """Generate a rollout using GenericOpenAIChatAgent."""
 
-        self.logger.info(f"Starting rollout for task: {task}")
+        self.logger.info("Starting rollout for task: %s", task)
 
-        state: State = {
+        # Initialize/merge state from provided values
+        state = state or {}
+        state.update({
             "prompt": prompt,
-            "completion": [],
+            "completion": completion or [],
             "answer": answer,
             "task": task,
             "info": info or {},
-            "responses": [],
-            "turn": 0,
-        }
+            "example_id": example_id,
+        })
         state = await self.setup_state(state, **kwargs)
 
         # Extract HUD-specific data from info dict
@@ -150,53 +153,57 @@ class HUDGym(vf.MultiTurnEnv):
                 # Create the agent and run the full lifecycle via agent.run
                 completion_kwargs = self._sampling_to_completion_kwargs(sampling_args)
 
-                self.logger.debug(f"Configuration: allowed_tools={self.config['allowed_tools']}, max_turns={self.max_turns}")
+                self.logger.debug(
+                    "Configuration: allowed_tools=%s, max_turns=%s",
+                    self.config.get("allowed_tools"),
+                    self.max_turns,
+                )
 
                 agent = GenericOpenAIChatAgent(
                     openai_client=client,
                     model_name=model,
-                    parallel_tool_calls=False,
                     system_prompt=self.system_prompt,
-                    append_setup_output=False, # prompts can't be modified after initialization
-                    allowed_tools=self.config["allowed_tools"],
+                    append_setup_output=True,
+                    allowed_tools=self.config.get("allowed_tools"),
                     completion_kwargs=completion_kwargs,
                 )
                 agent.metadata = {}
 
-                self.logger.info(f"Running task: {hud_task.prompt}")
+                self.logger.info("Running task: %s", hud_task.prompt)
                 trace = await agent.run(hud_task, max_steps=self.max_turns)
 
                 # Store trace and reward for rubric evaluation
                 state["trace"] = trace
                 state["reward"] = trace.reward
 
-                # Extract conversation from the agent
+                # Extract conversation from the trace
                 completion = []
-
-                state["prompt"] = agent.conversation_history[:2]
-
-                if hasattr(agent, "conversation_history") and len(agent.conversation_history) >= 2:
-                    for msg in agent.conversation_history[2:]:
-                        formatted_msg = {"role": msg.get("role"), "content": msg.get("content", "") or ""}
-                        if "tool_calls" in msg:
-                            formatted_msg["tool_calls"] = msg["tool_calls"]
-                        completion.append(formatted_msg)
-
-                    self.logger.debug(f"Extracted {len(completion)} completion messages")
-
+                messages = getattr(trace, "messages", []) or []
+                if isinstance(messages, list) and len(messages) >= 2:
+                    state["prompt"] = messages[:2]
+                    for msg in messages[2:]:
+                        if isinstance(msg, dict):
+                            formatted_msg = {
+                                "role": msg.get("role"),
+                                "content": msg.get("content", "") if isinstance(msg.get("content"), str) else "",
+                            }
+                            if "tool_calls" in msg:
+                                formatted_msg["tool_calls"] = msg["tool_calls"]
+                            completion.append(formatted_msg)
+                    self.logger.debug("Extracted %d completion messages", len(completion))
                 state["completion"] = completion
 
-                self.logger.info(f"Task {task} completed with reward: {trace.reward}")
+                self.logger.info("Task %s completed with reward: %s", task, trace.reward)
 
                 return completion, state
 
         except Exception as e:
-            self.logger.error(f"Error during rollout: {e}")
+            self.logger.error("Error during rollout: %s", e)
             state["error"] = str(e)
             state["error_step"] = f"turn_{state.get('turn', 0)}"
             state["reward"] = 0.0
 
-            self.logger.warning(f"Task {task} failed with error: {e}")
+            self.logger.warning("Task %s failed with error: %s", task, e)
 
             return [], state
 
