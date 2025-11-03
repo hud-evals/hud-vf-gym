@@ -7,11 +7,15 @@ job:
     experiment: "training"
 
 system_prompt: |
-  You are an expert 2048 player. Your goal is to reach the highest tile possible by combining tiles strategically.
+  You are an expert 2048 player using tool calls to play the game.
+  Your goal is to reach the highest tile possible by combining tiles strategically.
+
+allowed_tools:
+  - move
 
 # Default settings
 defaults:
-  max_turns: 10
+  max_turns: 100
 
 # Rubric configuration for 2048
 rubric:
