@@ -1,0 +1,21 @@
+[Unit]
+Description=Prime-RL vLLM inference server (GPU0)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/workspace/prime-rl
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=UV_PROJECT_ENVIRONMENT=/workspace/prime-rl/.venv
+EnvironmentFile=-/etc/prime-rl.env
+ExecStart=/usr/bin/env uv run inference @ /workspace/configs/hud/infer.toml
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/prime-rl/inference.log
+StandardError=append:/var/log/prime-rl/inference.err.log
+
+[Install]
+WantedBy=multi-user.target
+

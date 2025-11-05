@@ -14,6 +14,7 @@ def load_environment(
     config_path: str,
     num_tasks: int | None = None,
     split: str = "train",
+    replicate_to: int | None = None,
     **kwargs,
 ) -> HUDGym:
     """Load HUDGym environment from a HuggingFace dataset or JSON file.
@@ -103,6 +104,18 @@ def load_environment(
         if num_tasks is not None:
             examples = examples[:num_tasks]
 
+        # Optionally replicate to reach a desired count
+        target_count = replicate_to or (num_tasks if num_tasks is not None else len(examples))
+        if target_count > len(examples) and len(examples) > 0:
+            base = examples
+            idx = 0
+            while len(examples) < target_count:
+                ex = dict(base[idx % len(base)])
+                base_id = ex.get("id", f"task_{idx % len(base)}")
+                ex["id"] = f"{base_id}__dup{len(examples)}"
+                examples.append(ex)
+                idx += 1
+
         dataset = _normalize_examples(examples)
         return HUDGym(dataset=dataset, config_path=config_path, **kwargs)
 
@@ -111,8 +124,14 @@ def load_environment(
 
     hf_dataset: Dataset = load_dataset(taskset, split=split)  # type: ignore
 
+    # Only truncate if requested size is less than the dataset length.
     if num_tasks is not None:
-        hf_dataset = hf_dataset.select(range(num_tasks))
+        try:
+            total_len = len(hf_dataset)  # type: ignore[arg-type]
+        except Exception:
+            total_len = None  # fallback if not supported
+        if total_len is None or num_tasks < total_len:
+            hf_dataset = hf_dataset.select(range(num_tasks))
 
     examples = [
         {
@@ -125,6 +144,18 @@ def load_environment(
         }
         for i in range(len(hf_dataset))
     ]
+
+    # Optionally replicate to reach a desired count
+    target_count = replicate_to or (num_tasks if num_tasks is not None else len(examples))
+    if target_count > len(examples) and len(examples) > 0:
+        base = examples.copy()
+        idx = 0
+        while len(examples) < target_count:
+            ex = dict(base[idx % len(base)])
+            base_id = ex.get("id", f"task_{idx % len(base)}")
+            ex["id"] = f"{base_id}__dup{len(examples)}"
+            examples.append(ex)
+            idx += 1
 
     dataset = _normalize_examples(examples)
 

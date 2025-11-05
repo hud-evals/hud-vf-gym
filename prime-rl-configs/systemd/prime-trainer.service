@@ -1,0 +1,21 @@
+[Unit]
+Description=Prime-RL trainer (GPU1)
+After=network-online.target prime-orchestrator@%i.service
+Requires=prime-orchestrator@%i.service
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/workspace/prime-rl
+Environment=CUDA_VISIBLE_DEVICES=1
+Environment=UV_PROJECT_ENVIRONMENT=/workspace/prime-rl/.venv
+EnvironmentFile=-/etc/prime-rl.env
+ExecStart=/usr/bin/env uv run trainer @ /workspace/configs/hud/rl.train.toml
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/prime-rl/trainer.log
+StandardError=append:/var/log/prime-rl/trainer.err.log
+
+[Install]
+WantedBy=multi-user.target
+
