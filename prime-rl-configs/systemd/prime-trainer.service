@@ -6,15 +6,15 @@ Requires=prime-orchestrator@%i.service
 [Service]
 Type=simple
 User=%i
-WorkingDirectory=/workspace/prime-rl
+WorkingDirectory=__REMOTE_BASE__/prime-rl
 Environment=CUDA_VISIBLE_DEVICES=1
-Environment=UV_PROJECT_ENVIRONMENT=/workspace/prime-rl/.venv
+Environment=UV_PROJECT_ENVIRONMENT=__REMOTE_BASE__/prime-rl/.venv
 EnvironmentFile=-/etc/prime-rl.env
-ExecStart=/usr/bin/env uv run trainer @ /workspace/configs/hud/rl.train.toml
+ExecStart=/usr/bin/env uv run trainer @ __REMOTE_BASE__/configs/hud/rl.train.toml
 Restart=always
 RestartSec=5
-StandardOutput=append:/var/log/prime-rl/trainer.log
-StandardError=append:/var/log/prime-rl/trainer.err.log
+StandardOutput=append:__REMOTE_BASE__/logs/prime-rl/trainer.log
+StandardError=append:__REMOTE_BASE__/logs/prime-rl/trainer.err.log
 
 [Install]
 WantedBy=multi-user.target

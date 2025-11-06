@@ -6,15 +6,15 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=%i
-WorkingDirectory=/workspace/prime-rl
+WorkingDirectory=__REMOTE_BASE__/prime-rl
 Environment=CUDA_VISIBLE_DEVICES=0
-Environment=UV_PROJECT_ENVIRONMENT=/workspace/prime-rl/.venv
+Environment=UV_PROJECT_ENVIRONMENT=__REMOTE_BASE__/prime-rl/.venv
 EnvironmentFile=-/etc/prime-rl.env
-ExecStart=/usr/bin/env uv run inference @ /workspace/configs/hud/infer.toml
+ExecStart=/usr/bin/env uv run inference @ __REMOTE_BASE__/configs/hud/infer.toml
 Restart=always
 RestartSec=5
-StandardOutput=append:/var/log/prime-rl/inference.log
-StandardError=append:/var/log/prime-rl/inference.err.log
+StandardOutput=append:__REMOTE_BASE__/logs/prime-rl/inference.log
+StandardError=append:__REMOTE_BASE__/logs/prime-rl/inference.err.log
 
 [Install]
 WantedBy=multi-user.target

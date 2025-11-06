@@ -2,21 +2,21 @@
 # PRIME-RL RL trainer config for HUD 2048 #
 ###########################################
 
-output_dir = "/workspace/checkpoints/trainer"
+output_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
 max_steps = 200
 async_level = 1
 
 [model]
-name = "Qwen/Qwen2.5-0.5B-Instruct"
+name = "openai/gpt-oss-20b"
 trust_remote_code = true
 optimization_dtype = "bfloat16"
 reduce_dtype = "bfloat16"
 
 [model.experimental.lora]
-rank = 16
-alpha = 32.0
+rank = 4
+alpha = 8.0
 dropout = 0.05
-target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
+target_modules = ["q_proj", "k_proj", "v_proj"]
 
 [optim]
 type = "adamw"

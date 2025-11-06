@@ -2,11 +2,11 @@
 # PRIME-RL orchestrator config for HUD 2048 #
 ############################################
 
-output_dir = "/workspace/checkpoints/orchestrator"
+output_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
 batch_size = 4
 rollouts_per_example = 4
-max_concurrent = 8
-seq_len = 2048
+max_concurrent = 4
+seq_len = 8192
 async_level = 1
 
 [client]
@@ -15,11 +15,11 @@ api_key_var = "OPENAI_API_KEY"
 timeout = 1200
 
 [model]
-name = "Qwen/Qwen2.5-0.5B-Instruct"
+name = "openai/gpt-oss-20b"
 trust_remote_code = true
 
 [sampling]
-max_tokens = 256
+max_tokens = 512
 temperature = 1.0
 
 [[env]]
@@ -28,9 +28,9 @@ name = "hud-2048"
 
 [env.args]
 taskset = "hud-evals/2048-taskset"
-config_path = "/workspace/configs/2048.yaml"
-num_tasks = 6
-replicate_to = 256
+config_path = "__REMOTE_BASE__/configs/2048.yaml"
+task_index = 0
+replicate_to = 128
 
 [log]
 level = "info"

@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 
-# Usage: ./deploy_prime.sh [-p PORT] [-i IDENTITY_FILE] user@host
+# Usage: ./deploy_prime.sh [-p PORT] [-i IDENTITY_FILE] [-b REMOTE_BASE] user@host
 # Example: ./deploy_prime.sh -p 9678 -i private_key.pem root@205.196.17.100
 
 set -euo pipefail
 
 SSH_PORT=""
 SSH_IDENTITY=""
+REMOTE_BASE=""
+REMOTE_BASE_DEFAULT="/ephemeral"
+REMOTE_BASE_FROM_ENV="${PRIME_REMOTE_BASE:-}"
 
-while getopts ":p:i:" opt; do
+while getopts ":p:i:b:" opt; do
   case $opt in
     p)
       SSH_PORT="$OPTARG"
@@ -16,8 +19,11 @@ while getopts ":p:i:" opt; do
     i)
       SSH_IDENTITY="$OPTARG"
       ;;
+    b)
+      REMOTE_BASE="$OPTARG"
+      ;;
     *)
-      echo "Usage: $0 [-p PORT] [-i IDENTITY_FILE] <ssh-target>" >&2
+      echo "Usage: $0 [-p PORT] [-i IDENTITY_FILE] [-b REMOTE_BASE] <ssh-target>" >&2
       exit 1
       ;;
   esac
@@ -25,16 +31,24 @@ done
 shift $((OPTIND-1))
 
 if [ "$#" -lt 1 ]; then
-  echo "Usage: $0 [-p PORT] [-i IDENTITY_FILE] <ssh-target>" >&2
+  echo "Usage: $0 [-p PORT] [-i IDENTITY_FILE] [-b REMOTE_BASE] <ssh-target>" >&2
   exit 1
 fi
 
 TARGET="$1"
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 REPO_ROOT="$(cd "$BASE_DIR/.." && pwd)"
-REMOTE_BASE="/workspace"
+if [ -z "$REMOTE_BASE" ]; then
+  if [ -n "$REMOTE_BASE_FROM_ENV" ]; then
+    REMOTE_BASE="$REMOTE_BASE_FROM_ENV"
+  else
+    REMOTE_BASE="$REMOTE_BASE_DEFAULT"
+  fi
+fi
+
 REMOTE_ENV_FILE="$REMOTE_BASE/.prime-rl-env"
 REMOTE_APP_DIR="$REMOTE_BASE/hud-vf-gym"
+REMOTE_BASE_ESCAPED=$(printf "%q" "$REMOTE_BASE")
 
 SSH_OPTS=("-o" "StrictHostKeyChecking=accept-new")
 if [ -n "$SSH_PORT" ]; then
@@ -76,7 +90,19 @@ else
 fi
 
 # Ensure remote dirs exist and correct ownership
-ssh "${SSH_OPTS[@]}" "$TARGET" "mkdir -p $REMOTE_BASE/configs $REMOTE_BASE/scripts $REMOTE_BASE/systemd $REMOTE_APP_DIR /var/log/prime-rl && chown -R \$USER:\$USER $REMOTE_BASE /var/log/prime-rl"
+ssh "${SSH_OPTS[@]}" "$TARGET" "REMOTE_BASE=$REMOTE_BASE_ESCAPED bash -s" <<'EOS'
+set -euo pipefail
+
+APP_DIR="$REMOTE_BASE/hud-vf-gym"
+mkdir -p \
+  "$REMOTE_BASE/configs" \
+  "$REMOTE_BASE/scripts" \
+  "$REMOTE_BASE/systemd" \
+  "$APP_DIR" \
+  "$REMOTE_BASE/logs/prime-rl"
+
+chown -R "$USER":"$USER" "$REMOTE_BASE" "$REMOTE_BASE/logs/prime-rl" 2>/dev/null || true
+EOS
 
 echo "Syncing hud-vf-gym source to $TARGET:$REMOTE_APP_DIR"
 RSYNC_APP_EXCLUDES=(
@@ -96,7 +122,42 @@ RSYNC_APP_EXCLUDES=(
 
 rsync -av --delete -e "$RSYNC_SSH" "${RSYNC_APP_EXCLUDES[@]}" "$REPO_ROOT/" "$TARGET:$REMOTE_APP_DIR/"
 
-declare -a TOKEN_EXPORTS=('export PYTHONPATH="/workspace/hud-vf-gym/src:${PYTHONPATH:-}"')
+ssh "${SSH_OPTS[@]}" "$TARGET" "REMOTE_BASE=$REMOTE_BASE_ESCAPED bash -s" <<'EOS'
+set -euo pipefail
+
+placeholder="__REMOTE_BASE__"
+replacement="$REMOTE_BASE"
+
+escape_for_sed() {
+  local value="$1"
+  value=${value//\\/\\\\}
+  value=${value//\//\\/}
+  value=${value//&/\\&}
+  printf '%s' "$value"
+}
+
+replacement_escaped=$(escape_for_sed "$replacement")
+
+shopt -s nullglob
+for dir in "$REMOTE_BASE/configs/hud" "$REMOTE_BASE/systemd"; do
+  if [ ! -d "$dir" ]; then
+    continue
+  fi
+  if [[ "$dir" == */systemd ]]; then
+    pattern='*.service'
+  else
+    pattern='*.toml'
+  fi
+  for file in "$dir"/$pattern; do
+    sed -i "s|$placeholder|$replacement_escaped|g" "$file"
+  done
+done
+shopt -u nullglob
+EOS
+
+declare -a TOKEN_EXPORTS=("export PYTHONPATH=$REMOTE_APP_DIR/src:\\${PYTHONPATH:-}")
+
+TOKEN_EXPORTS+=("export PRIME_REMOTE_BASE=$REMOTE_BASE_ESCAPED")
 
 if [ -n "${HF_TOKEN:-}" ]; then
   HF_ESCAPED=$(printf "%q" "$HF_TOKEN")
