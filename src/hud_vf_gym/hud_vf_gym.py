@@ -2,6 +2,7 @@
 
 import json
 import os
+from typing import Any
 
 import hud
 import verifiers as vf
@@ -11,8 +12,81 @@ from hud.agents import GenericOpenAIChatAgent
 from hud.datasets import Task
 from openai import AsyncOpenAI
 from verifiers import Info, Messages, SamplingArgs, State
+from hud.types import MCPToolCall
 
 from .rubrics import HUDBaseRubric
+
+class LoggingOpenAIChatAgent(GenericOpenAIChatAgent):
+    """GenericOpenAIChatAgent variant that records raw responses and patches JSON tool calls."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.raw_responses: list[Any] = []
+
+    async def get_response(self, messages: list[Any]) -> hud.agents.base.AgentResponse:  # type: ignore[override]
+        response = await super().get_response(messages)
+
+        if getattr(response, "raw", None) is not None:
+            self.raw_responses.append(response.raw)
+
+        if not response.tool_calls and response.content:
+            parsed = self._parse_tool_call(response.content)
+            if parsed is not None:
+                tool_name, tool_args = parsed
+                tool_call = MCPToolCall(name=tool_name, arguments=tool_args)
+                response.tool_calls = [tool_call]
+                response.content = ""
+
+                if messages and isinstance(messages[-1], dict) and messages[-1].get("role") == "assistant":
+                    messages[-1]["tool_calls"] = [
+                        {
+                            "id": tool_call.id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_call.name,
+                                "arguments": json.dumps(tool_args, separators=(",", ":")),
+                            },
+                        }
+                    ]
+                    messages[-1]["content"] = ""
+
+        return response
+
+    @staticmethod
+    def _parse_tool_call(content: str) -> tuple[str, dict[str, Any]] | None:
+        content = content.strip()
+        if not content:
+            return None
+
+        if content.startswith("```") and content.count("```") >= 2:
+            fence_split = content.split("```", 2)
+            content = fence_split[1]
+            if content.lower().startswith("json"):
+                content = content.split("\n", 1)[1] if "\n" in content else content[4:]
+            content = content.strip()
+
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        name = payload.get("name")
+        if not isinstance(name, str):
+            return None
+
+        arguments = payload.get("arguments") or payload.get("parameters")
+        if not isinstance(arguments, dict):
+            return None
+
+        direction = arguments.get("direction")
+        if direction not in {"up", "down", "left", "right"}:
+            return None
+
+        return name, {"direction": direction}
+
 
 class HUDGym(vf.MultiTurnEnv):
     """HUD environment using native OpenAI tool calling."""
@@ -148,6 +222,7 @@ class HUDGym(vf.MultiTurnEnv):
             system_prompt=self.system_prompt,
         )
 
+        agent: LoggingOpenAIChatAgent | None = None
         try:
             with hud.trace(f"rollout_{task}", job_id=self.job_id):
                 # Create the agent and run the full lifecycle via agent.run
@@ -159,7 +234,7 @@ class HUDGym(vf.MultiTurnEnv):
                     self.max_turns,
                 )
 
-                agent = GenericOpenAIChatAgent(
+                agent = LoggingOpenAIChatAgent(
                     openai_client=client,
                     model_name=model,
                     system_prompt=self.system_prompt,
@@ -177,20 +252,45 @@ class HUDGym(vf.MultiTurnEnv):
                 state["reward"] = trace.reward
 
                 # Extract conversation from the trace
-                completion = []
+                completion: list[dict[str, Any]] = []
                 messages = getattr(trace, "messages", []) or []
                 if isinstance(messages, list) and len(messages) >= 2:
                     state["prompt"] = messages[:2]
                     for msg in messages[2:]:
-                        if isinstance(msg, dict):
-                            formatted_msg = {
-                                "role": msg.get("role"),
-                                "content": msg.get("content", "") if isinstance(msg.get("content"), str) else "",
-                            }
-                            if "tool_calls" in msg:
-                                formatted_msg["tool_calls"] = msg["tool_calls"]
-                            completion.append(formatted_msg)
-                    self.logger.debug("Extracted %d completion messages", len(completion))
+                        if not isinstance(msg, dict):
+                            continue
+                        role = msg.get("role")
+                        content = msg.get("content", "")
+                        tool_calls = msg.get("tool_calls")
+
+                        is_assistant = role == "assistant"
+                        has_tool = isinstance(tool_calls, list) and tool_calls
+                        if not is_assistant and not has_tool:
+                            continue
+
+                        formatted_msg: dict[str, Any] = {"role": "assistant"}
+
+                        if isinstance(content, (str, list)):
+                            formatted_msg["content"] = content
+                        elif content is None:
+                            formatted_msg["content"] = ""
+
+                        if has_tool:
+                            formatted_msg["tool_calls"] = tool_calls
+                        if msg.get("tool_call_id"):
+                            formatted_msg["tool_call_id"] = msg["tool_call_id"]
+                        if msg.get("name"):
+                            formatted_msg["name"] = msg["name"]
+
+                        completion.append(formatted_msg)
+
+                if not completion:
+                    # Synthesise a minimal assistant turn so trainer metrics never see empty tensors.
+                    completion.append({
+                        "role": "assistant",
+                        "content": "<no-op>",
+                    })
+
                 state["completion"] = completion
 
                 self.logger.info("Task %s completed with reward: %s", task, trace.reward)
@@ -206,6 +306,12 @@ class HUDGym(vf.MultiTurnEnv):
             self.logger.warning("Task %s failed with error: %s", task, e)
 
             return [], state
+
+        finally:
+            if state is not None:
+                state.setdefault("responses", [])
+                if isinstance(agent, LoggingOpenAIChatAgent):
+                    state["responses"] = list(agent.raw_responses)
 
     def __del__(self):
         """Cleanup method to update job status when HUDGym is destroyed."""

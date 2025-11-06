@@ -3,25 +3,40 @@
 ###########################################
 
 output_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
-max_steps = 200
+max_steps = 300
 async_level = 1
 
 [model]
-name = "openai/gpt-oss-20b"
-trust_remote_code = true
+name = "Qwen/Qwen3-4B-Instruct-2507"
+impl = "liger_kernel"
+trust_remote_code = false
 optimization_dtype = "bfloat16"
 reduce_dtype = "bfloat16"
 
+[model.ac]
+freq = 1
+
 [model.experimental.lora]
-rank = 4
-alpha = 8.0
+rank = 16
+alpha = 32.0
 dropout = 0.05
-target_modules = ["q_proj", "k_proj", "v_proj"]
+target_modules = [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+]
+modules_to_save = [
+    "embed_tokens",
+    "norm",
+    "layernorm",
+    "lm_head$",
+]
 
 [optim]
 type = "adamw"
 lr = 1.0e-5
-weight_decay = 0.0
+weight_decay = 0.01
 max_norm = 1.0
 
 [scheduler]
@@ -41,4 +56,3 @@ log_data = false
 [wandb]
 project = "hud-prime-rl"
 offline = false
-

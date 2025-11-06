@@ -3,11 +3,12 @@
 ############################################
 
 output_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
-batch_size = 4
-rollouts_per_example = 4
-max_concurrent = 4
-seq_len = 8192
+batch_size = 16
+rollouts_per_example = 16
+max_concurrent = 8
+seq_len = 4096
 async_level = 1
+mask_truncated_completions = false
 
 [client]
 base_url = ["http://127.0.0.1:8000/v1"]
@@ -15,11 +16,11 @@ api_key_var = "OPENAI_API_KEY"
 timeout = 1200
 
 [model]
-name = "openai/gpt-oss-20b"
+name = "Qwen/Qwen3-4B-Instruct-2507"
 trust_remote_code = true
 
 [sampling]
-max_tokens = 512
+max_tokens = 256
 temperature = 1.0
 
 [[env]]
@@ -29,8 +30,8 @@ name = "hud-2048"
 [env.args]
 taskset = "hud-evals/2048-taskset"
 config_path = "__REMOTE_BASE__/configs/2048.yaml"
-task_index = 0
-replicate_to = 128
+task_index = 1
+replicate_to = 512
 
 [log]
 level = "info"
@@ -38,3 +39,11 @@ vf_level = "warn"
 file = true
 log_data = false
 
+[wandb]
+project = "hud-prime-rl"
+offline = false
+
+[wandb.log_extras]
+samples = false
+distributions = true
+interval = 1

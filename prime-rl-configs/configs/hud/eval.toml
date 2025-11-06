@@ -5,9 +5,9 @@
 output_dir = "__REMOTE_BASE__/checkpoints/eval"
 weights_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
 use_tqdm = true
-max_concurrent = 16
-num_examples = 64
-rollouts_per_example = 1
+max_concurrent = 8
+num_examples = 32
+rollouts_per_example = 2
 
 [client]
 base_url = ["http://127.0.0.1:8000/v1"]
@@ -15,11 +15,11 @@ api_key_var = "OPENAI_API_KEY"
 timeout = 36000
 
 [model]
-name = "openai/gpt-oss-20b"
+name = "Qwen/Qwen3-4B-Instruct-2507"
 trust_remote_code = true
 
 [sampling]
-max_tokens = 128
+max_tokens = 768
 temperature = 1.0
 
 [[env]]
@@ -39,4 +39,3 @@ log_data = false
 
 [save.disk]
 path = "__REMOTE_BASE__/checkpoints/eval"
-

@@ -2,20 +2,19 @@
 # PRIME-RL inference config for HUD 2048 #
 ##########################################
 
-gpu_memory_utilization = 0.6
+gpu_memory_utilization = 0.8
 
 [server]
 host = "0.0.0.0"
 port = 8000
 
 [model]
-name = "openai/gpt-oss-20b"
+name = "Qwen/Qwen3-4B-Instruct-2507"
 trust_remote_code = true
-max_model_len = 32768
+max_model_len = 22880
 dtype = "auto"
 enable_auto_tool_choice = true
 
 [parallel]
 tp = 1
 dp = 1
-
