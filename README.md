@@ -183,6 +183,143 @@ python train_2048.py
 python eval_browser_2048.py
 ```
 
+## PRIME-RL + Prime Intellect Integration (Qwen3-4B, 2×A6000)
+
+This repo includes production-ready configs and scripts to train with PRIME‑RL on a Prime Intellect GPU instance while using this `hud-vf-gym` environment.
+
+What’s included:
+
+- `prime-rl-configs/configs/hud/` – TOMLs for inference, trainer (LoRA PPO), orchestrator, and eval.
+- `prime-rl-configs/scripts/` – `bootstrap.sh`, `start_all.sh`, `deploy_prime.sh` (automation).
+- `prime-rl-configs/systemd/` – optional services for auto‑start on boot.
+
+Model/GPU split:
+
+- `Qwen/Qwen3-4B-Instruct-2507` via vLLM on GPU0; RL trainer (LoRA) on GPU1; orchestrator on CPU.
+
+Synced defaults (see the TOMLs for the full list):
+
+- Trainer now runs 300 steps per launch with LoRA rank 16 / alpha 32 / dropout 0.05 to stay stable on the 4B base model.
+- Orchestrator batches 64 prompts with 16 rollouts and up to 32 concurrent tasks; sampling is capped at 256 response tokens to control VRAM growth.
+- Inference `max_model_len` is set to 22,880 tokens, which fits comfortably on a 48 GB A6000 while leaving headroom for trainer gradients.
+- Raw transcript logging is disabled by default (`log_data = false`) across eval/orchestrator/trainer—flip it back on if you need full conversation archives.
+
+### A) CPU Smoke Test (no GPU)
+
+PRIME‑RL itself requires an NVIDIA GPU, so the CPU smoke test validates the HUD/verifiers environment and config locally.
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+pip install -U openai  # required by test.py; or set ANTHROPIC instead
+
+export HUD_API_KEY=...           # if required by your tasks
+export OPENAI_API_KEY=...        # or ANTHROPIC_API_KEY
+
+# Validate env loads (single task) using your config and dataset
+python test.py  # uses configs/2048.yaml and hud-evals/2048-taskset
+
+# Or with the CLI (no code):
+vf-eval hud-vf-gym \
+  --model gpt-4o-mini \
+  --env-args '{"taskset":"hud-evals/2048-taskset","config_path":"configs/2048.yaml"}' \
+  --num-tasks 1
+```
+
+Expected: the environment initializes, one rollout/eval completes, and a score prints.
+
+### B) Real Run on Prime Intellect (2×A6000)
+
+Prereqs:
+
+- Provision a single 2×A6000 pod on Prime-Intellect (UBUNTU 22 CUDA 12 base image).
+- Export `WANDB_API_KEY` and `HF_TOKEN` locally so the deploy script can forward them.
+- Decide on a remote base path (defaults to `/ephemeral`, override with `-b` or `PRIME_REMOTE_BASE`). All configs/scripts/logs will live underneath it.
+
+1) One‑command deploy from your laptop
+
+```bash
+# From repo root
+chmod +x prime-rl-configs/scripts/*.sh
+
+# Replace with your SSH target/port/key/remote base as needed
+chmod 600 private_key.pem
+
+prime-rl-configs/scripts/deploy_prime.sh -i private_key.pem ubuntu@38.80.122.121
+```
+
+What it does (`REMOTE_BASE` = `/ephemeral` unless you overrode it):
+
+- rsyncs `prime-rl-configs/` into `$REMOTE_BASE/` (scripts, configs, systemd units) and writes `$REMOTE_BASE/.prime-rl-env` with forwarded env vars.
+- syncs this repo to `$REMOTE_BASE/hud-vf-gym` and installs it (plus `verifiers`, `hud-python`) inside the PRIME-RL venv via `bootstrap.sh`.
+- clones + `uv sync`s `prime-rl` into `$REMOTE_BASE/prime-rl`, configures Docker (if needed), and verifies `flash_attn`.
+- uploads `configs/2048.yaml` to `$REMOTE_BASE/configs/2048.yaml` if present.
+- starts a tmux session `prime-rl` with:
+  - pane 0: vLLM inference on GPU0
+  - pane 1: orchestrator (CPU)
+  - pane 2: RL trainer on GPU1
+
+2) Health checks and manual controls (on the instance)
+
+```bash
+tmux ls
+tmux attach -t prime-rl
+
+# vLLM health
+curl http://127.0.0.1:8000/health
+
+# Logs (if you use systemd):
+sudo journalctl -u prime-inference@root -f
+sudo journalctl -u prime-orchestrator@root -f
+sudo journalctl -u prime-trainer@root -f
+```
+
+3) Example eval and training commands manaully
+
+```bash
+source /ephemeral/.prime-rl-env  # or point at your custom REMOTE_BASE
+REMOTE_BASE=${PRIME_REMOTE_BASE:-/ephemeral}
+
+cd "$REMOTE_BASE/prime-rl"
+
+# Start inference (GPU0)
+CUDA_VISIBLE_DEVICES=0 uv run inference @ "$REMOTE_BASE/configs/hud/infer.toml"
+
+# Run the orchestrator
+uv run orchestrator @ "$REMOTE_BASE/configs/hud/orch.toml"
+
+# Start trainer (GPU1)
+CUDA_VISIBLE_DEVICES=1 uv run trainer @ "$REMOTE_BASE/configs/hud/rl.train.toml"
+
+# Once it finished the trainingm, evaluate a small slice to verify performance at each step.
+uv run eval @ "$REMOTE_BASE/configs/hud/eval.toml"
+```
+
+### W&B tracking
+
+`prime-rl-configs/scripts/start_all.sh` now pins both orchestrator and trainer to the same Weights & Biases project/group automatically. The script exports `WANDB_PROJECT=hud-prime-rl`, emits a `hud-2048-<timestamp>` value for both `WANDB_GROUP` and `WANDB_RUN_GROUP`, and gives descriptive run names (`orch-…`, `trainer-…`). Make sure `WANDB_API_KEY` is exported on the host before starting the stack so both panes authenticate correctly. Adjust the project or naming scheme directly in the script if you want a different W&B layout.
+
+Paths and checkpoints (under the same `REMOTE_BASE`):
+
+- Checkpoints: `$REMOTE_BASE/checkpoints/` (subfolders for inference/trainer/eval)
+- Configs: `$REMOTE_BASE/configs/hud/*.toml` and `$REMOTE_BASE/configs/2048.yaml`
+
+### Config references
+
+- Inference: `prime-rl-configs/configs/hud/infer.toml` (vLLM on GPU0)
+- Trainer: `prime-rl-configs/configs/hud/rl.train.toml` (LoRA PPO on GPU1)
+- Orchestrator: `prime-rl-configs/configs/hud/orch.toml`
+- Eval: `prime-rl-configs/configs/hud/eval.toml`
+
+Adjust the `[model].name` fields if you prefer a different Qwen checkpoint or model. Default is `Qwen/Qwen3-4B-Instruct-2507` (public on Hugging Face).
+
+### References
+
+- PRIME‑RL: https://github.com/PrimeIntellect-ai/prime-rl
+- Prime Intellect: https://docs.primeintellect.ai/introduction
+- Verifiers: https://verifiers.readthedocs.io/en/latest/
+- HUD: https://docs.hud.ai/
+
 ## Troubleshooting
 
 ### Common Issues

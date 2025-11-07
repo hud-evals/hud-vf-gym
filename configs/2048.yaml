@@ -7,11 +7,23 @@ job:
     experiment: "training"
 
 system_prompt: |
-  You are an expert 2048 player. Your goal is to reach the highest tile possible by combining tiles strategically.
+  You are an expert 2048 player.
+  Your ONLY way to act is by calling the "move" tool with a direction: "up", "down", "left", or "right".
+  Make strategic moves to reach the highest tile possible (target tile is provided in the prompt if present).
+  
+  Basic strategy: 
+  - Keep the largest tile in one corner.
+  - Prefer moves that maintain monotonic rows/columns.
+  - Avoid unnecessary merges that break structure.
+  
+  Always call the move tool when you want to make a move. Look at the board state after each move to plan your next action.
+
+allowed_tools:
+  - move
 
 # Default settings
 defaults:
-  max_turns: 10
+  max_turns: 100
 
 # Rubric configuration for 2048
 rubric:

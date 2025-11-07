@@ -3,6 +3,8 @@
 import json
 import os
 
+from . import _patches  # noqa: F401
+
 from datasets import Dataset, load_dataset
 
 from .hud_vf_gym import HUDGym
@@ -14,6 +16,8 @@ def load_environment(
     config_path: str,
     num_tasks: int | None = None,
     split: str = "train",
+    replicate_to: int | None = None,
+    task_index: int | None = None,
     **kwargs,
 ) -> HUDGym:
     """Load HUDGym environment from a HuggingFace dataset or JSON file.
@@ -100,8 +104,24 @@ def load_environment(
             if not examples:
                 raise
 
-        if num_tasks is not None:
+        # If a single task index is specified, select that one task (wrap around if out of bounds)
+        if task_index is not None and len(examples) > 0:
+            idx = task_index % len(examples)
+            examples = [examples[idx]]
+        elif num_tasks is not None:
             examples = examples[:num_tasks]
+
+        # Optionally replicate to reach a desired count
+        target_count = replicate_to or (num_tasks if num_tasks is not None else len(examples))
+        if target_count > len(examples) and len(examples) > 0:
+            base = examples
+            idx = 0
+            while len(examples) < target_count:
+                ex = dict(base[idx % len(base)])
+                base_id = ex.get("id", f"task_{idx % len(base)}")
+                ex["id"] = f"{base_id}__dup{len(examples)}"
+                examples.append(ex)
+                idx += 1
 
         dataset = _normalize_examples(examples)
         return HUDGym(dataset=dataset, config_path=config_path, **kwargs)
@@ -111,20 +131,60 @@ def load_environment(
 
     hf_dataset: Dataset = load_dataset(taskset, split=split)  # type: ignore
 
+    # Only truncate if requested size is less than the dataset length.
     if num_tasks is not None:
-        hf_dataset = hf_dataset.select(range(num_tasks))
+        try:
+            total_len = len(hf_dataset)  # type: ignore[arg-type]
+        except Exception:
+            total_len = None  # fallback if not supported
+        if total_len is None or num_tasks < total_len:
+            hf_dataset = hf_dataset.select(range(num_tasks))
 
-    examples = [
-        {
-            "id": hf_dataset[i].get("id", f"task_{i}"),
-            "prompt": hf_dataset[i].get("prompt", ""),
-            "mcp_config": hf_dataset[i].get("mcp_config"),
-            "setup_tool": hf_dataset[i].get("setup_tool"),
-            "evaluate_tool": hf_dataset[i].get("evaluate_tool"),
-            "metadata": hf_dataset[i].get("metadata", {}),
-        }
-        for i in range(len(hf_dataset))
-    ]
+    # If a single task index is specified, select that one task (wrap around if out of bounds)
+    if task_index is not None:
+        try:
+            total_len = len(hf_dataset)  # type: ignore[arg-type]
+        except Exception:
+            total_len = 0
+        if total_len == 0:
+            examples = []
+        else:
+            idx = task_index % total_len
+            ex_row = hf_dataset[idx]
+            examples = [
+                {
+                    "id": ex_row.get("id", f"task_{idx}"),
+                    "prompt": ex_row.get("prompt", ""),
+                    "mcp_config": ex_row.get("mcp_config"),
+                    "setup_tool": ex_row.get("setup_tool"),
+                    "evaluate_tool": ex_row.get("evaluate_tool"),
+                    "metadata": ex_row.get("metadata", {}),
+                }
+            ]
+    else:
+        examples = [
+            {
+                "id": hf_dataset[i].get("id", f"task_{i}"),
+                "prompt": hf_dataset[i].get("prompt", ""),
+                "mcp_config": hf_dataset[i].get("mcp_config"),
+                "setup_tool": hf_dataset[i].get("setup_tool"),
+                "evaluate_tool": hf_dataset[i].get("evaluate_tool"),
+                "metadata": hf_dataset[i].get("metadata", {}),
+            }
+            for i in range(len(hf_dataset))
+        ]
+
+    # Optionally replicate to reach a desired count
+    target_count = replicate_to or (num_tasks if num_tasks is not None else len(examples))
+    if target_count > len(examples) and len(examples) > 0:
+        base = examples.copy()
+        idx = 0
+        while len(examples) < target_count:
+            ex = dict(base[idx % len(base)])
+            base_id = ex.get("id", f"task_{idx % len(base)}")
+            ex["id"] = f"{base_id}__dup{len(examples)}"
+            examples.append(ex)
+            idx += 1
 
     dataset = _normalize_examples(examples)
 

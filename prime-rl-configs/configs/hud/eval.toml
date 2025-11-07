@@ -1,0 +1,41 @@
+#########################################
+# PRIME-RL offline eval config for HUD #
+#########################################
+
+output_dir = "__REMOTE_BASE__/checkpoints/eval"
+weights_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
+use_tqdm = true
+max_concurrent = 8
+num_examples = 32
+rollouts_per_example = 2
+
+[client]
+base_url = ["http://127.0.0.1:8000/v1"]
+api_key_var = "OPENAI_API_KEY"
+timeout = 36000
+
+[model]
+name = "Qwen/Qwen3-4B-Instruct-2507"
+trust_remote_code = true
+
+[sampling]
+max_tokens = 768
+temperature = 1.0
+
+[[env]]
+id = "hud-vf-gym"
+name = "hud-2048"
+
+[env.args]
+taskset = "hud-evals/2048-taskset"
+config_path = "__REMOTE_BASE__/configs/2048.yaml"
+num_tasks = 1
+
+[log]
+level = "info"
+vf_level = "warn"
+file = true
+log_data = false
+
+[save.disk]
+path = "__REMOTE_BASE__/checkpoints/eval"

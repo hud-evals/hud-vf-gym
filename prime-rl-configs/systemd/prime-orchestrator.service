@@ -1,0 +1,20 @@
+[Unit]
+Description=Prime-RL orchestrator (HUD verifiers)
+After=network-online.target prime-inference@%i.service
+Requires=prime-inference@%i.service
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=__REMOTE_BASE__/prime-rl
+Environment=UV_PROJECT_ENVIRONMENT=__REMOTE_BASE__/prime-rl/.venv
+EnvironmentFile=-/etc/prime-rl.env
+ExecStart=/usr/bin/env uv run orchestrator @ __REMOTE_BASE__/configs/hud/orch.toml
+Restart=always
+RestartSec=5
+StandardOutput=append:__REMOTE_BASE__/logs/prime-rl/orchestrator.log
+StandardError=append:__REMOTE_BASE__/logs/prime-rl/orchestrator.err.log
+
+[Install]
+WantedBy=multi-user.target
+

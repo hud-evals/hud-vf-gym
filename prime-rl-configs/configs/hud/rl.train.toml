@@ -1,0 +1,58 @@
+###########################################
+# PRIME-RL RL trainer config for HUD 2048 #
+###########################################
+
+output_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
+max_steps = 300
+async_level = 1
+
+[model]
+name = "Qwen/Qwen3-4B-Instruct-2507"
+impl = "liger_kernel"
+trust_remote_code = false
+optimization_dtype = "bfloat16"
+reduce_dtype = "bfloat16"
+
+[model.ac]
+freq = 1
+
+[model.experimental.lora]
+rank = 16
+alpha = 32.0
+dropout = 0.05
+target_modules = [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+]
+modules_to_save = [
+    "embed_tokens",
+    "norm",
+    "layernorm",
+    "lm_head$",
+]
+
+[optim]
+type = "adamw"
+lr = 1.0e-5
+weight_decay = 0.01
+max_norm = 1.0
+
+[scheduler]
+type = "constant"
+
+[weights]
+interval = 200
+save_format = "safetensors"
+save_async = true
+
+[log]
+level = "info"
+vf_level = "warn"
+file = true
+log_data = false
+
+[wandb]
+project = "hud-prime-rl"
+offline = false
