@@ -3,7 +3,7 @@
 ###########################################
 
 output_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
-max_steps = 300
+max_steps = 100
 async_level = 1
 
 [model]
@@ -17,14 +17,17 @@ reduce_dtype = "bfloat16"
 freq = 1
 
 [model.experimental.lora]
-rank = 16
-alpha = 32.0
-dropout = 0.05
+rank = 32
+alpha = 64
+dropout = 0.0
 target_modules = [
     "q_proj",
     "k_proj",
     "v_proj",
     "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj"
 ]
 modules_to_save = [
     "embed_tokens",
@@ -51,7 +54,7 @@ save_async = true
 level = "info"
 vf_level = "warn"
 file = true
-log_data = false
+log_data = true
 
 [wandb]
 project = "hud-prime-rl"

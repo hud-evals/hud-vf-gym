@@ -35,7 +35,7 @@ num_tasks = 1
 level = "info"
 vf_level = "warn"
 file = true
-log_data = false
+log_data = true
 
 [save.disk]
 path = "__REMOTE_BASE__/checkpoints/eval"
