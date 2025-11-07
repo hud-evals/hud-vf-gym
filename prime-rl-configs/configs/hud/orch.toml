@@ -3,11 +3,11 @@
 ############################################
 
 output_dir = "__REMOTE_BASE__/checkpoints/prime-rl"
-batch_size = 512
-rollouts_per_example = 8
-max_concurrent = 8
+batch_size = 64
+rollouts_per_example = 16
+max_concurrent = 32
 seq_len = 4096
-async_level = 2
+async_level = 1
 mask_truncated_completions = false
 
 [client]
@@ -20,7 +20,7 @@ name = "Qwen/Qwen3-4B-Instruct-2507"
 trust_remote_code = true
 
 [sampling]
-max_tokens = 768
+max_tokens = 256
 temperature = 1.0
 
 [[env]]
@@ -37,4 +37,4 @@ replicate_to = 512
 level = "info"
 vf_level = "warn"
 file = true
-log_data = true
+log_data = false

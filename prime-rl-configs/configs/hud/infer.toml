@@ -11,7 +11,7 @@ port = 8000
 [model]
 name = "Qwen/Qwen3-4B-Instruct-2507"
 trust_remote_code = true
-max_model_len = 32768
+max_model_len = 22880
 dtype = "auto"
 enable_auto_tool_choice = true
 
